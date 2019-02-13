@@ -26,7 +26,6 @@ class phase_coex:
         self.bins = bins
         self.plus = plus
         self.nnn = nearest_neighbor_number
-        self.result = defaultdict(list)
         self.load_and_process()
         
     def load_and_process(self):
@@ -35,7 +34,7 @@ class phase_coex:
         self.side_len = self.R * self.real_particle /4.0
         self.max_dist = self.side_len/1.25
         self.odata['orient'] = (self.odata['orient'] + np.pi)%(2 * np.pi) 
-        self.frames = pdata['f']
+        self.frames = self.pdata['f']
         
         
     def track_config(self, pdata, odata, startframe):
