@@ -6,27 +6,44 @@ Created on Wed Feb 13 11:39:19 2019
 @author: zhejunshen
 """
 import helpy
-import velocity
 import ring_motion
 import numpy as np
 import matplotlib.pyplot as plt
 import tracks
 from scipy.spatial import cKDTree as KDTree
 import velocity
+from collections import defaultdict
+import os
 
 
 class phase_coex:
-    
-    def __init__(self, prefix, number_config = 200, config_len = 50, real_particle = 0.2, bins = 200 , plus = 1,\
-                nearest_neighbor_number = 5):
+    def __init__(self, prefix, number_config = 200, config_len = 50, real_particle = 0.2, fps = 2.5, \
+                 nearest_neighbor_number = 5,  plot_check = False, solid_den_test = False,\
+                 test_layer = 2):
         self.prefix = prefix
         self.number_config = number_config
         self.config_len = config_len
         self.real_particle = real_particle
-        self.bins = bins
-        self.plus = plus
+        self.fps = fps
         self.nnn = nearest_neighbor_number
+        self.system_area = np.pi * 4 **2
+        self.result = defaultdict(list)
         self.load_and_process()
+        parent_direct = os.path.abspath(os.path.join(self.prefix, os.pardir))
+        self.plot_check = plot_check
+        self.solid_den_test = solid_den_test
+        self.test_layer = test_layer
+        if self.solid_den_test:
+            self.solid_density = list()
+        self.save_name = parent_direct + '/config_vdata.npy'
+        vdata_file = self.save_name
+        if os.path.isfile(vdata_file):
+            self.config_vdata = np.load(vdata_file).item()
+            if len(self.config_vdata.keys()) != number_config:
+                self.build_config_vdata()
+        else:
+            self.config_vdata = dict()
+            self.build_config_vdata()
         
     def load_and_process(self):
         self.pdata, self.odata = helpy.load_data(self.prefix, 'p o')
@@ -50,7 +67,7 @@ class phase_coex:
     
     def single_config_detect(self, v_data):
         qualify_id, order_para_mean  = list(), list()
-        vr_mean = list()
+        vr_mean, vomega_list = list(), list()
         for pid, pid_data in v_data.items():
             center_orient = pid_data['corient']
             particle_orient = pid_data['o']
@@ -63,12 +80,15 @@ class phase_coex:
             qualify_id.append(pid)
             order_para_mean.append(np.nanmean(product))
             vr_mean.append(np.nanmean(pid_data['vradi']))
+            vomega_list.append(np.nanmean(np.abs(pid_data['vomega'])))
         qualify_id = np.asarray(qualify_id)
-        return qualify_id, order_para_mean, vr_mean
+        order_para_mean = np.asarray(order_para_mean)
+        vr_mean = np.asarray(vr_mean)
+        vomega_list = np.asarray(vomega_list)
+        return qualify_id, order_para_mean, vr_mean, vomega_list
         
-    def phase_detection(self):
-        self.solids = []
-        self.detect = []
+        
+    def build_config_vdata(self):
         for i in range(0, self.number_config):
             startframe = i * self.config_len
             mask = (self.frames >= startframe) & (self.frames < (i+1)*self.config_len)
@@ -78,35 +98,61 @@ class phase_coex:
                                              run_repair = 'interp')
             track_prefix = {self.prefix: tracksets}
             v_data = velocity.compile_noise(track_prefix, width=(0.525,), cat = False, side = self.side_len, \
-                                        fps = 5.0, ring = True, x0= self.x0, y0 = self.y0, skip = 1, \
+                                        fps = self.fps, ring = True, x0 = self.x0, y0 = self.y0, skip = 1, \
                                         grad = False, start = 0)
             v_data = v_data[self.prefix]
+            self.config_vdata[startframe] = v_data
+        np.save(self.save_name ,self.config_vdata)
+        return
+    
+    def solid_criteria(self, order, vr, vomega):
+        # order parameter criteria
+        order_mask = (order >= 1/np.sqrt(2) - 0.12) & (order <= 1/np.sqrt(2) + 0.12)
+        # vr criteria
+        solid_vr_mean = np.mean(vr)
+        solid_vr_std = np.std(vr)
+        if solid_vr_std < 0.006:
+            solid_vr_std = 0.006  
+        vr_mask = (vr >= solid_vr_mean - 1.5 * solid_vr_std) & (vr <= solid_vr_mean + 1.5 * solid_vr_std)
+        #vomega criteria
+        vomega_mask = vomega < 0.15
+        return order_mask, vr_mask, vomega_mask
+    
+    
+    
+    def phase_detection(self):
+        self.solids = []
+        self.detect = []
+        self.liquid_density = list()
+        self.solid_fraction = list()
+        plot_number = 0
+        sorted_keys = sorted(self.config_vdata.keys())
+        for startframe in sorted_keys:                
             #pids = v_data.keys()
-            qualify_id, order_para_mean, vr_mean = self.single_config_detect(v_data)
+            v_data = self.config_vdata[startframe]
+            qualify_id, order_para_mean, vr_mean, vomega_list = self.single_config_detect(v_data)
             self.detect.append(len(qualify_id))
-            
-            # order parameter requirement
-            order_mask = (order_para_mean >= 1/np.sqrt(2) - 0.12) & (order_para_mean <= 1/np.sqrt(2) + 0.12)
-            # vr requirement
-            solid_vr_mean = np.mean(vr_mean)
-            solid_vr_std = np.std(vr_mean)
-            vr_mask = (vr_mean >= solid_vr_mean - solid_vr_std) & (vr_mean <= solid_vr_mean + solid_vr_std)
+            qualify_id_set = set(qualify_id)            
+            order_mask, vr_mask, vomega_mask = self.solid_criteria(order_para_mean, vr_mean, vomega_list)
             
             fdata = helpy.load_framesets(v_data)
+            if self.solid_den_test:                
+                self.solid_density.append(self.get_solid_density(fdata))
+            
+            # find the frame where contains all the qualified particles
             count = 0
-            temp_bool = True
-            while (len(fdata[startframe + count]['t']) != len(qualify_id)) & (count < 49):
-                count += 1
+            while (count < 49) & (not set(fdata[startframe+count]['t']).issuperset(qualify_id_set)):
+                count+=1
                 if count == 49:
-                    temp_bool = False
+                    break
             startframe += count
-
+            # for the idtentified frame, make TRUE if t in qualified_id
             fdata_track = fdata[startframe]['t']
             track_mask = list()
             for t in fdata_track:
                 track_mask.append(t in qualify_id)
-            track_mask = np.asarray(track_mask)
-            
+            track_mask = np.asarray(track_mask)            
+            #build KDTree to query the nearest neighbor
             xys = helpy.consecutive_fields_view(fdata[startframe][track_mask], 'xy')
             ftree = KDTree(xys, leafsize = 16)
             
@@ -117,10 +163,63 @@ class phase_coex:
                     final_mask.append(False)
                     continue
                 dists, ids = ftree.query(xys[pt_id], self.nnn)
-                final_mask.append(np.all(vr_mask[ids]))
-            self.solids.append(np.sum(final_mask & order_mask))
+                #if np.all(dists < self.side_len * 2.0):
+                if np.sum(dists < self.side_len*1.5) > 2:
+                    final_mask.append(np.sum(vr_mask[ids]) > 3)
+                else:
+                    final_mask.append(False)
+            solid_number = np.sum(np.array(final_mask) & np.array(vomega_mask) & np.array(vr_mask) )
+            self.solids.append(solid_number)
+            self.liquid_density.append(self.density_calculation(solid_number, len(qualify_id)))
+            self.solid_fraction.append(float(solid_number)/len(qualify_id))
+            
+            if plot_number < self.plot_check:
+                xs = helpy.consecutive_fields_view(fdata[startframe][track_mask],'x')
+                ys = helpy.consecutive_fields_view(fdata[startframe][track_mask],'y')
+                self.plot_check_solid(xs, ys, vr_mean, vr_mask, order_para_mean, order_mask,vomega_list, vomega_mask, final_mask)
+                plot_number += 1
+        return len(qualify_id)
+        
     
+    def density_calculation(self, number_of_solids, total_number):
+        solids_area =  self.real_particle ** 2 * number_of_solids / 0.95347
+        liquid_area = self.system_area - solids_area
+        number_liquid = total_number - number_of_solids
+        rho_liquid = number_liquid * self.real_particle ** 2/ float(liquid_area)
+        return rho_liquid
+        
     
-    def plot_check_solid(self):
+    def plot_check_solid(self,xs,ys, vr_mean, vr_mask, dot_mean_list, order_mask, vomega_list, vomega_mask, final_mask):
+        fig_omega, ax_omga = plt.subplots(figsize = (5,5))
+        omga_img = ax_omga.scatter(ys,1024 - xs, c = vomega_list, cmap = 'Paired')
+        fig_omega.colorbar(omga_img)
+        
+        fig, ax = plt.subplots(2,2,figsize = (20,20))
+        cax0 = fig.add_axes([0.2, 0.9, 0.25, 0.025])
+        cax1 = fig.add_axes([0.6, 0.9, 0.25, 0.025])
+        cax2 = fig.add_axes([0.2, 0.5, 0.25, 0.025])
+        cax3 = fig.add_axes([0.6, 0.5, 0.25, 0.025])
+        im0 = ax[0,0].scatter(ys,1024 - xs, c = vr_mean,  cmap='Paired')
+        im1 = ax[0,1].scatter(ys,1024 - xs, c = final_mask ,  cmap='Paired')
+        im2 = ax[1,0].scatter(ys,1024 - xs, c = dot_mean_list,  cmap='Paired')
+        # need the order paramter criteria
+        #im3 = ax[1,1].scatter(ys,1024 - xs, c = final_mask & vomega_mask & order_mask,  cmap='Paired')
+        im3 = ax[1,1].scatter(ys,1024 - xs, c = final_mask & vomega_mask,  cmap='Paired')
+        fig.colorbar(im0, cax=cax0, orientation='horizontal')
+        fig.colorbar(im1, cax=cax1, orientation='horizontal')
+        fig.colorbar(im2, cax=cax2, orientation='horizontal')
+        fig.colorbar(im3, cax=cax3, orientation='horizontal')
+        plt.show()
         return
+    
+    def get_solid_density(self, fdata):
+        inner = self.R - self.test_layer * self.side_len
+        total_area = np.pi*(self.R**2 - inner ** 2)
+        solid_density = list()
+        for frame, framedata in fdata.items():
+            qualify_mask = (framedata['r'] > inner)
+            qualify_mask = qualify_mask & (framedata['r'] < self.R)
+            mask_sum = np.sum(qualify_mask)
+            solid_density.append(mask_sum * self.side_len ** 2/ total_area)
+        return np.mean(solid_density)
             
