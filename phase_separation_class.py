@@ -19,7 +19,7 @@ import os
 class phase_coex:
     def __init__(self, prefix, number_config = 200, config_len = 50, real_particle = 0.2, fps = 2.5, \
                  nearest_neighbor_number = 5,  plot_check = False, solid_den_test = False,\
-                 test_layer = 2):
+                 test_layer = 2, vomega = 0.12):
         self.prefix = prefix
         self.number_config = number_config
         self.config_len = config_len
@@ -32,6 +32,7 @@ class phase_coex:
         parent_direct = os.path.abspath(os.path.join(self.prefix, os.pardir))
         self.plot_check = plot_check
         self.solid_den_test = solid_den_test
+        self.vomega_criteria = vomega
         self.test_layer = test_layer
         if self.solid_den_test:
             self.solid_density = list()
@@ -115,7 +116,7 @@ class phase_coex:
             solid_vr_std = 0.006  
         vr_mask = (vr >= solid_vr_mean - 1.5 * solid_vr_std) & (vr <= solid_vr_mean + 1.5 * solid_vr_std)
         #vomega criteria
-        vomega_mask = vomega < 0.15
+        vomega_mask = vomega < self.vomega_criteria
         return order_mask, vr_mask, vomega_mask
     
     
@@ -189,10 +190,11 @@ class phase_coex:
         return rho_liquid
         
     
-    def plot_check_solid(self,xs,ys, vr_mean, vr_mask, dot_mean_list, order_mask, vomega_list, vomega_mask, final_mask):
-        fig_omega, ax_omga = plt.subplots(figsize = (5,5))
-        omga_img = ax_omga.scatter(ys,1024 - xs, c = vomega_list, cmap = 'Paired')
-        fig_omega.colorbar(omga_img)
+    def plot_check_solid(self,xs,ys, vr_mean, vr_mask, dot_mean_list, order_mask, \
+                         vomega_list, vomega_mask, final_mask):
+        #fig_omega, ax_omga = plt.subplots(figsize = (5,5))
+        #omga_img = ax_omga.scatter(ys,1024 - xs, c = vomega_list, cmap = 'Paired')
+        #fig_omega.colorbar(omga_img)
         
         fig, ax = plt.subplots(2,2,figsize = (20,20))
         cax0 = fig.add_axes([0.2, 0.9, 0.25, 0.025])
@@ -201,7 +203,7 @@ class phase_coex:
         cax3 = fig.add_axes([0.6, 0.5, 0.25, 0.025])
         im0 = ax[0,0].scatter(ys,1024 - xs, c = vr_mean,  cmap='Paired')
         im1 = ax[0,1].scatter(ys,1024 - xs, c = final_mask ,  cmap='Paired')
-        im2 = ax[1,0].scatter(ys,1024 - xs, c = dot_mean_list,  cmap='Paired')
+        im2 = ax[1,0].scatter(ys,1024 - xs, c = vomega_list,  cmap='Paired')
         # need the order paramter criteria
         #im3 = ax[1,1].scatter(ys,1024 - xs, c = final_mask & vomega_mask & order_mask,  cmap='Paired')
         im3 = ax[1,1].scatter(ys,1024 - xs, c = final_mask & vomega_mask,  cmap='Paired')

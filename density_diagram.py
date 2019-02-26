@@ -15,17 +15,19 @@ import os
 
 
 class phase_diagram:
-    def __init__(self, path, plot_check = 0, solid_density = True, particle_size = 0.2, load_data = True):
+    def __init__(self, path, plot_check = 0, solid_density = True, particle_size = 0.2, load_data = True, vomega = 0.15):
         self.path = path
         self.plot_check = plot_check
         self.solid_density = solid_density
         self.load = load_data
+        self.vomega = vomega
         self.density_dict = self.build_density(self.path, self.plot_check, self.solid_density)
         self.particle_size = particle_size
         self.total = np.pi*4**2/self.particle_size**2
+        
     
     def single_density_load(self, prefix, plot_check = 0 ,solid_density = True):
-        phase = phase_coex(prefix, plot_check= plot_check, solid_den_test= solid_density)
+        phase = phase_coex(prefix, plot_check= plot_check, solid_den_test= solid_density, vomega = self.vomega)
         total_number= phase.phase_detection()
         liquid = phase.liquid_density
         solid_fraction = phase.solid_fraction
@@ -36,7 +38,7 @@ class phase_diagram:
     
     def build_density(self, path, plot_check = 0, solid_density = True):
         prefixs = Find_Direct(path)
-        density_file = os.path.join(path, 'density_dict.npy')
+        density_file = os.path.join(path, 'density_dict_'+str(self.vomega)+'.npy')
         density_dict = {}
         if os.path.isfile(density_file) and self.load:
             number_of_density = len(prefixs)
@@ -59,10 +61,15 @@ class phase_diagram:
         return density_dict
 
     
-    def plot_single_quantity(self, density, quantity, error):
+    
+    def plot_single_quantity(self, density, quantity, error, name = ''):
         fig, ax = plt.subplots()
+        save_name = os.path.join(self.path, name + '.pdf')
         for d, q, e in zip(density, quantity, error):
             ax.errorbar(d, q, yerr= e,  fmt='o', elinewidth=2, markeredgewidth=2)
+        ax.set_xlabel('Area Fraction')
+        ax.set_ylabel(name)
+        fig.savefig(save_name)
         return
     
     def phase_plot(self):
@@ -77,6 +84,9 @@ class phase_diagram:
             self.diagram_data['solid_err'].append(np.std(value[1]))
             self.diagram_data['solid_fraction'].append(np.mean(value[2]))
             self.diagram_data['solid_fraction_err'].append(np.std(value[2]))
-        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['liquid'], self.diagram_data['liquid_err'])
-        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid'], self.diagram_data['solid_err'])
-        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid_fraction'], self.diagram_data['solid_fraction_err'])
+        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['liquid'], \
+                                  self.diagram_data['liquid_err'], 'Liquid Density')
+        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid'], \
+                                  self.diagram_data['solid_err'], 'Density Close to Boundary')
+        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid_fraction'],\
+                                  self.diagram_data['solid_fraction_err'], 'Solid Number Fraction')
