@@ -169,7 +169,15 @@ class phase_coex:
                     final_mask.append(np.sum(vr_mask[ids]) > 3)
                 else:
                     final_mask.append(False)
-            solid_number = np.sum(np.array(final_mask) & np.array(vomega_mask) & np.array(vr_mask) )
+            temp_mask = np.array(final_mask) & np.array(vomega_mask)
+            
+            # if you neighbors qualified then you will be solid ,exclude detection error
+            qualified_solid = list()
+            for pt_id in range(len(xys)):
+                dists, ids = ftree.query(xys[pt_id], self.nnn)
+                qualified_solid.append(temp_mask[pt_id] or np.sum(temp_mask[ids[1:]]) >= 3)
+                
+            solid_number = np.sum(qualified_solid)
             self.solids.append(solid_number)
             self.liquid_density.append(self.density_calculation(solid_number, len(qualify_id)))
             self.solid_fraction.append(float(solid_number)/len(qualify_id))
@@ -177,7 +185,9 @@ class phase_coex:
             if plot_number < self.plot_check:
                 xs = helpy.consecutive_fields_view(fdata[startframe][track_mask],'x')
                 ys = helpy.consecutive_fields_view(fdata[startframe][track_mask],'y')
-                self.plot_check_solid(xs, ys, vr_mean, vr_mask, order_para_mean, order_mask,vomega_list, vomega_mask, final_mask)
+                self.plot_check_solid(xs, ys, vr_mean, vr_mask, order_para_mean, \
+                                      order_mask,vomega_list, vomega_mask, final_mask,\
+                                      qualified_solid)
                 plot_number += 1
         return len(qualify_id)
         
@@ -191,11 +201,11 @@ class phase_coex:
         
     
     def plot_check_solid(self,xs,ys, vr_mean, vr_mask, dot_mean_list, order_mask, \
-                         vomega_list, vomega_mask, final_mask):
+                         vomega_list, vomega_mask, final_mask, qualified_solid):
         #fig_omega, ax_omga = plt.subplots(figsize = (5,5))
         #omga_img = ax_omga.scatter(ys,1024 - xs, c = vomega_list, cmap = 'Paired')
         #fig_omega.colorbar(omga_img)
-        
+        """
         fig, ax = plt.subplots(2,2,figsize = (20,20))
         cax0 = fig.add_axes([0.2, 0.9, 0.25, 0.025])
         cax1 = fig.add_axes([0.6, 0.9, 0.25, 0.025])
@@ -206,11 +216,17 @@ class phase_coex:
         im2 = ax[1,0].scatter(ys,1024 - xs, c = vomega_list,  cmap='Paired')
         # need the order paramter criteria
         #im3 = ax[1,1].scatter(ys,1024 - xs, c = final_mask & vomega_mask & order_mask,  cmap='Paired')
-        im3 = ax[1,1].scatter(ys,1024 - xs, c = final_mask & vomega_mask,  cmap='Paired')
+        im3 = ax[1,1].scatter(ys,1024 - xs, c = qualified_solid, cmap='Paired')
         fig.colorbar(im0, cax=cax0, orientation='horizontal')
         fig.colorbar(im1, cax=cax1, orientation='horizontal')
         fig.colorbar(im2, cax=cax2, orientation='horizontal')
         fig.colorbar(im3, cax=cax3, orientation='horizontal')
+        """
+        solid_fig, solid_ax = plt.subplots(figsize = (10,10))
+        solid_ax.scatter(ys, 1024-xs, c = qualified_solid, cmap = 'Paired')
+        solid_ax.set_xticks([])
+        solid_ax.set_yticks([])
+        solid_fig.savefig(self.prefix + "_solid.pdf",dpi = 400)
         plt.show()
         return
     
