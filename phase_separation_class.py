@@ -126,6 +126,8 @@ class phase_coex:
         self.detect = []
         self.liquid_density = list()
         self.solid_fraction = list()
+        self.xys = dict()
+        self.final_id = dict()
         plot_number = 0
         sorted_keys = sorted(self.config_vdata.keys())
         for startframe in sorted_keys:                
@@ -155,6 +157,8 @@ class phase_coex:
             track_mask = np.asarray(track_mask)            
             #build KDTree to query the nearest neighbor
             xys = helpy.consecutive_fields_view(fdata[startframe][track_mask], 'xy')
+            self.xys[startframe] = xys
+            
             ftree = KDTree(xys, leafsize = 16)
             
             final_mask = []
@@ -176,7 +180,8 @@ class phase_coex:
             for pt_id in range(len(xys)):
                 dists, ids = ftree.query(xys[pt_id], self.nnn)
                 qualified_solid.append(temp_mask[pt_id] or np.sum(temp_mask[ids[1:]]) >= 3)
-                
+            
+            self.final_id[startframe] = qualified_solid    
             solid_number = np.sum(qualified_solid)
             self.solids.append(solid_number)
             self.liquid_density.append(self.density_calculation(solid_number, len(qualify_id)))
@@ -226,7 +231,8 @@ class phase_coex:
         solid_ax.scatter(ys, 1024-xs, c = qualified_solid, cmap = 'Paired')
         solid_ax.set_xticks([])
         solid_ax.set_yticks([])
-        solid_fig.savefig(self.prefix + "_solid.pdf",dpi = 400)
+        solid_fig.savefig(self.prefix + "_solid"+str(len(qualified_solid))+".pdf",\
+                          dpi = 400, bbox_inches = 'tight')
         plt.show()
         return
     

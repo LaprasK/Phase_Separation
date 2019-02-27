@@ -69,7 +69,7 @@ class phase_diagram:
             ax.errorbar(d, q, yerr= e,  fmt='o', elinewidth=2, markeredgewidth=2)
         ax.set_xlabel('Area Fraction')
         ax.set_ylabel(name)
-        fig.savefig(save_name)
+        fig.savefig(save_name, dpi = 500, bbox_inches = 'tight')
         return
     
     def phase_plot(self):
