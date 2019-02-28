@@ -10,10 +10,38 @@ import ring_motion
 import numpy as np
 import matplotlib.pyplot as plt
 import tracks
-from scipy.spatial import cKDTree as KDTree
+from scipy.spatial import Voronoi, cKDTree as KDTree
 import velocity
 from collections import defaultdict
 import os
+
+
+def poly_area(corners):
+    """calculate area of polygon"""
+    area = 0.0
+    n = len(corners)
+    for i in xrange(n):
+        j = (i + 1) % n
+        area += corners[i][0] * corners[j][1]
+        area -= corners[j][0] * corners[i][1]
+    return abs(area) / 2.0
+
+
+def calculate_area(positions):
+    vor = Voronoi(positions)
+    regions = (vor.regions[regi] for regi in vor.point_region)
+    return np.array([0 if -1 in reg else poly_area(vor.vertices[reg])
+                     for reg in regions])
+    
+
+def vornoi_liquid(xys, ids, sidelength):
+    temp = calculate_area(xys)
+    area = temp[~np.array(ids)]
+    area = area[area > sidelength**2/0.85]
+    number_liquid = len(area)
+    total_area = np.sum(area)
+    return number_liquid * sidelength ** 2 / total_area
+    
 
 
 class phase_coex:
@@ -184,7 +212,8 @@ class phase_coex:
             self.final_id[startframe] = qualified_solid    
             solid_number = np.sum(qualified_solid)
             self.solids.append(solid_number)
-            self.liquid_density.append(self.density_calculation(solid_number, len(qualify_id)))
+            self.liquid_density.append(self.density_calculation(solid_number, len(qualify_id), \
+                                                                xys, qualified_solid))
             self.solid_fraction.append(float(solid_number)/len(qualify_id))
             
             if plot_number < self.plot_check:
@@ -197,11 +226,14 @@ class phase_coex:
         return len(qualify_id)
         
     
-    def density_calculation(self, number_of_solids, total_number):
+    def density_calculation(self, number_of_solids, total_number, xys, ids):
         solids_area =  self.real_particle ** 2 * number_of_solids / 0.95347
-        liquid_area = self.system_area - solids_area
-        number_liquid = total_number - number_of_solids
-        rho_liquid = number_liquid * self.real_particle ** 2/ float(liquid_area)
+        if solids_area/self.system_area < 0.8:
+            liquid_area = self.system_area - solids_area
+            number_liquid = total_number - number_of_solids
+            rho_liquid = number_liquid * self.real_particle ** 2/ float(liquid_area)
+        else:
+            rho_liquid = vornoi_liquid(xys, ids, self.side_len)
         return rho_liquid
         
     
