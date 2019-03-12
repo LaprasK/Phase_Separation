@@ -34,8 +34,25 @@ def calculate_area(positions):
                      for reg in regions])
     
 
-def vornoi_liquid(xys, ids, sidelength):
+def vornoi_liquid(xys, ids, sidelength, hist = False, plot_area = True):
     temp = calculate_area(xys)
+    threshold = temp <= 1400
+    print(temp)
+    if hist:
+        ids = np.asarray(ids)
+        fig, ax = plt.subplots()
+        ax.hist(temp[ids], 50, range=[500, 1500], log=True)
+        ax.hist(temp[~ids], 50, range=[500, 1500], log=True)
+        plt.show()
+    if plot_area:
+        xys = np.array(xys)
+        ys = xys[threshold][:,1]
+        xs = xys[threshold][:,0]        
+        f, a = plt.subplots(figsize=(10,10))
+        im0 = a.scatter(ys,1024-xs, c = temp[threshold], cmap = 'Paired')
+        cax0 = f.add_axes([0.1, 0.9, 0.7, 0.025])
+        f.colorbar(im0, cax=cax0, orientation='horizontal')
+        plt.show()
     area = temp[~np.array(ids)]
     area = area[area > sidelength**2/0.85]
     number_liquid = len(area)
@@ -228,12 +245,14 @@ class phase_coex:
     
     def density_calculation(self, number_of_solids, total_number, xys, ids):
         solids_area =  self.real_particle ** 2 * number_of_solids / 0.95347
-        if solids_area/self.system_area < 0.8:
+        fraction = solids_area/self.system_area
+        if fraction < 0.8:
             liquid_area = self.system_area - solids_area
             number_liquid = total_number - number_of_solids
             rho_liquid = number_liquid * self.real_particle ** 2/ float(liquid_area)
         else:
-            rho_liquid = vornoi_liquid(xys, ids, self.side_len)
+            hist = True if fraction > 0.85 else False
+            rho_liquid = vornoi_liquid(xys, ids, self.side_len, hist)
         return rho_liquid
         
     

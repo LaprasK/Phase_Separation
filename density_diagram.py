@@ -62,14 +62,21 @@ class phase_diagram:
 
     
     
-    def plot_single_quantity(self, density, quantity, error, name = ''):
-        fig, ax = plt.subplots()
+    def plot_single_quantity(self, density, quantity, error, name = '', text_position = (0,0)):
+        fig, ax = plt.subplots(figsize = (15,10))
         save_name = os.path.join(self.path, name + '.pdf')
         for d, q, e in zip(density, quantity, error):
-            ax.errorbar(d, q, yerr= e,  fmt='o', elinewidth=2, markeredgewidth=2)
-        ax.set_xlabel('Area Fraction')
-        ax.set_ylabel(name)
-        fig.savefig(save_name, dpi = 500, bbox_inches = 'tight')
+            ax.errorbar(d, q, markersize='20', yerr= e,  fmt='o', elinewidth=4, capsize= 6,markeredgewidth=4)
+        ax.set_xlabel(r'Area Fraction $\phi$', fontsize = 25)
+        ax.set_xlim([0,1])
+        ax.set_ylabel(name, fontsize = 25)
+        ax.axvspan(0.5, 0.93, facecolor='#2ca02c', alpha=0.2)
+        ax.text(0.56, 0.35, "Phase Coexistence", fontsize = 28)
+        ax.axvline(0.5, color = 'black', ls = '--', lw= 3)
+        #ax.annotate("Phase Coexistence", arrow_position, xytext=(arrow_position[0] - 0.24, arrow_position[1]+0.1),arrowprops=dict(facecolor='black', width=2),fontsize =22)
+        ax.tick_params(length=6, width=2, labelsize=20)
+        [i.set_linewidth(2) for i in ax.spines.itervalues()]
+        fig.savefig(save_name, dpi = 600, bbox_inches = 'tight')
         return
     
     def phase_plot(self):
@@ -85,8 +92,8 @@ class phase_diagram:
             self.diagram_data['solid_fraction'].append(np.mean(value[2]))
             self.diagram_data['solid_fraction_err'].append(np.std(value[2]))
         self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['liquid'], \
-                                  self.diagram_data['liquid_err'], 'Liquid Density')
+                                  self.diagram_data['liquid_err'], 'Liquid Density', (0.51,0.51) )
         self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid'], \
                                   self.diagram_data['solid_err'], 'Density Close to Boundary')
         self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid_fraction'],\
-                                  self.diagram_data['solid_fraction_err'], 'Solid Number Fraction')
+                                  self.diagram_data['solid_fraction_err'], 'Solid Number Fraction', (0.51,0.05))
