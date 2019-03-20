@@ -10,7 +10,7 @@ import ring_motion
 import numpy as np
 import matplotlib.pyplot as plt
 import tracks
-from scipy.spatial import Voronoi, cKDTree as KDTree
+from scipy.spatial import Voronoi, voronoi_plot_2d ,cKDTree as KDTree
 import velocity
 from collections import defaultdict
 import os
@@ -27,17 +27,45 @@ def poly_area(corners):
     return abs(area) / 2.0
 
 
-def calculate_area(positions):
-    vor = Voronoi(positions)
+def calculate_area(vor):
     regions = (vor.regions[regi] for regi in vor.point_region)
     return np.array([0 if -1 in reg else poly_area(vor.vertices[reg])
                      for reg in regions])
     
+def build_voronoi_ridge_index(vor, liquid_id):    
+    index = vor.ridge_points
+    index = np.vstack((index, index[:,::-1]))
+    index_dict = dict()
+    for lid in liquid_id:
+        index_dict[lid] = index[index[:,0] == lid][:,1]
+    return index_dict
 
+def voronoi_neighbor(liquid, index):
+    """
+    liquid: index of particle identified as liquid, np.array
+    index: a 2D array 
+    """
+    vor_liquid = list()
+    for liq in liquid:
+        neighbors = index[liq]
+        qualified_neighbor = np.isin(neighbors, liquid)
+        threshold = np.sum(qualified_neighbor)/float(len(neighbors))
+        if threshold > 0.5:
+            vor_liquid.append(liq)
+    return np.array(vor_liquid)
+    
 def vornoi_liquid(xys, ids, sidelength, hist = False, plot_area = True):
-    temp = calculate_area(xys)
-    threshold = temp <= 1400
-    print(temp)
+    vor = Voronoi(xys)
+    temp = calculate_area(vor)
+    threshold = temp <= 4000
+    liquid_id = list(np.where(np.array(ids) == 0)[0])
+    index_dict = build_voronoi_ridge_index(vor, liquid_id)
+    vor_liquid = voronoi_neighbor(liquid_id, index_dict)
+
+    area = temp[vor_liquid]
+    #area = area[area <= 1400]
+    number_liquid = len(area)    
+    total_area = np.sum(area)
     if hist:
         ids = np.asarray(ids)
         fig, ax = plt.subplots()
@@ -46,18 +74,34 @@ def vornoi_liquid(xys, ids, sidelength, hist = False, plot_area = True):
         plt.show()
     if plot_area:
         xys = np.array(xys)
-        ys = xys[threshold][:,1]
-        xs = xys[threshold][:,0]        
-        f, a = plt.subplots(figsize=(10,10))
-        im0 = a.scatter(ys,1024-xs, c = temp[threshold], cmap = 'Paired')
+        """
+        ys = xys[threshold][:,0]
+        xs = xys[threshold][:,1]     
+        f, a = plt.subplots(2,1, figsize=(10,20))
+        im0 = a[0].scatter(xs, ys , c = temp[threshold], cmap = 'Paired')
+        #final_liquid = np.zeros_like(ids)
+        #final_liquid[vor_liquid] == 1
+        a[1].scatter(xys[:,1], 1024-xys[:,0], c = np.array(ids), cmap = 'Paired')
         cax0 = f.add_axes([0.1, 0.9, 0.7, 0.025])
         f.colorbar(im0, cax=cax0, orientation='horizontal')
         plt.show()
-    area = temp[~np.array(ids)]
-    area = area[area > sidelength**2/0.85]
-    number_liquid = len(area)
-    total_area = np.sum(area)
-    return number_liquid * sidelength ** 2 / total_area
+        """
+        fig_v, ax_v = plt.subplots(3,1,figsize = (15,45))
+        voronoi_plot_2d(vor, ax = ax_v[0], show_points = False, show_vertices = False)
+        ax_v[0].scatter(xys[:,0], xys[:,1], c = np.array(ids), cmap = 'Paired')
+        voronoi_plot_2d(vor, ax = ax_v[1], show_points = False, show_vertices = False)
+        final_liquid = np.zeros_like(ids)
+        final_liquid[vor_liquid] = 1
+        ax_v[1].scatter(xys[:,0], xys[:,1], c = final_liquid, cmap = 'Paired')
+        voronoi_plot_2d(vor, ax = ax_v[2], show_points = False, show_vertices = False)
+        im1 = ax_v[2].scatter(xys[threshold][:,0], xys[threshold][:,1], c = temp[threshold], cmap = 'Paired')
+        #cax0 = fig_v.add_axes([0.1,0.9,0.7,0.025])
+        cax1 = fig_v.add_axes([0.1,0.35,0.7,0.02])
+        #fig_v.colorbar(im0, cax = cax0, orientation = 'horizontal')
+        fig_v.colorbar(im1, cax = cax1, orientation = 'horizontal')
+        plt.show()    
+    liquid_density = number_liquid * sidelength ** 2 / total_area
+    return liquid_density, temp
     
 
 
@@ -173,6 +217,8 @@ class phase_coex:
         self.solid_fraction = list()
         self.xys = dict()
         self.final_id = dict()
+        self.solid_vor_area = np.empty(0)
+        self.liquid_vor_area = np.empty(0)
         plot_number = 0
         sorted_keys = sorted(self.config_vdata.keys())
         for startframe in sorted_keys:                
@@ -202,6 +248,9 @@ class phase_coex:
             track_mask = np.asarray(track_mask)            
             #build KDTree to query the nearest neighbor
             xys = helpy.consecutive_fields_view(fdata[startframe][track_mask], 'xy')
+            #switch x, y coordinate into the regular orientation
+            xys = xys[:,::-1]
+            xys[:,1] = 1024 - xys[:,1]
             self.xys[startframe] = xys
             
             ftree = KDTree(xys, leafsize = 16)
@@ -220,6 +269,8 @@ class phase_coex:
                     final_mask.append(False)
             temp_mask = np.array(final_mask) & np.array(vomega_mask)
             
+                        
+            
             # if you neighbors qualified then you will be solid ,exclude detection error
             qualified_solid = list()
             for pt_id in range(len(xys)):
@@ -228,9 +279,11 @@ class phase_coex:
             
             self.final_id[startframe] = qualified_solid    
             solid_number = np.sum(qualified_solid)
-            self.solids.append(solid_number)
+            self.solids.append(solid_number) 
+                       
+            plot_vor = startframe < 100
             self.liquid_density.append(self.density_calculation(solid_number, len(qualify_id), \
-                                                                xys, qualified_solid))
+                                                                xys, qualified_solid, plot_vor))
             self.solid_fraction.append(float(solid_number)/len(qualify_id))
             
             if plot_number < self.plot_check:
@@ -243,16 +296,19 @@ class phase_coex:
         return len(qualify_id)
         
     
-    def density_calculation(self, number_of_solids, total_number, xys, ids):
+    def density_calculation(self, number_of_solids, total_number, xys, ids, plot_vor):
         solids_area =  self.real_particle ** 2 * number_of_solids / 0.95347
         fraction = solids_area/self.system_area
-        if fraction < 0.8:
+        if fraction < 0.3:
             liquid_area = self.system_area - solids_area
             number_liquid = total_number - number_of_solids
             rho_liquid = number_liquid * self.real_particle ** 2/ float(liquid_area)
         else:
-            hist = True if fraction > 0.85 else False
-            rho_liquid = vornoi_liquid(xys, ids, self.side_len, hist)
+            hist = True if fraction > 1 else False
+            rho_liquid, varea = vornoi_liquid(xys, ids, self.side_len, hist, plot_vor)
+            ids = np.asarray(ids)
+            self.solid_vor_area = np.append(self.solid_vor_area, varea[ids])
+            self.liquid_vor_area = np.append(self.liquid_vor_area, varea[~ids])
         return rho_liquid
         
     
