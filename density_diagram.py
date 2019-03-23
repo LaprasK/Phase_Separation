@@ -15,28 +15,28 @@ import os
 
 
 class phase_diagram:
-    def __init__(self, path, plot_check = 0, solid_density = True, particle_size = 0.2, load_data = True, vomega = 0.15):
+    def __init__(self, path, plot_check = 0, particle_size = 0.2, load_data = True, vomega = 0.15):
         self.path = path
         self.plot_check = plot_check
-        self.solid_density = solid_density
+        #self.solid_density = solid_density
         self.load = load_data
         self.vomega = vomega
-        self.density_dict = self.build_density(self.path, self.plot_check, self.solid_density)
+        self.density_dict = self.build_density(self.path, self.plot_check)
         self.particle_size = particle_size
         self.total = np.pi*4**2/self.particle_size**2
         
     
-    def single_density_load(self, prefix, plot_check = 0 ,solid_density = True):
-        phase = phase_coex(prefix, plot_check= plot_check, solid_den_test= solid_density, vomega = self.vomega)
+    def single_density_load(self, prefix, plot_check = 0 ):
+        phase = phase_coex(prefix, plot_check= plot_check, vomega = self.vomega)
         total_number= phase.phase_detection()
         liquid = phase.liquid_density
         solid_fraction = phase.solid_fraction
         solid = list()
-        if solid_density:
-            solid = phase.solid_density
+        
+        solid = phase.solid_density
         return {total_number: (liquid, solid, solid_fraction, prefix)}  
     
-    def build_density(self, path, plot_check = 0, solid_density = True):
+    def build_density(self, path, plot_check = 0):
         prefixs = Find_Direct(path)
         density_file = os.path.join(path, 'density_dict_'+str(self.vomega)+'.npy')
         density_dict = {}
@@ -48,15 +48,13 @@ class phase_diagram:
                 exist_prefix = set([epr[-1] for epr in density_dict.values()])
                 for prefix in prefixs:
                     if prefix not in exist_prefix:
-                        density_dict.update(self.single_density_load(prefix, plot_check = plot_check,\
-                                                                     solid_density = solid_density))
+                        density_dict.update(self.single_density_load(prefix, plot_check = plot_check))
                 np.save(density_file, density_dict)
         else:
             density_dict = {}
             for prefix in prefixs:
                 print(prefix)
-                density_dict.update(self.single_density_load(prefix, plot_check = plot_check, \
-                                                             solid_density = solid_density))
+                density_dict.update(self.single_density_load(prefix, plot_check = plot_check))
             np.save(density_file, density_dict)
         return density_dict
 

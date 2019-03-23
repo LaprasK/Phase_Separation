@@ -10,105 +10,16 @@ import ring_motion
 import numpy as np
 import matplotlib.pyplot as plt
 import tracks
-from scipy.spatial import Voronoi, voronoi_plot_2d ,cKDTree as KDTree
+from scipy.spatial import cKDTree as KDTree
+from vor_geometry import *
 import velocity
 from collections import defaultdict
 import os
 
 
-def poly_area(corners):
-    """calculate area of polygon"""
-    area = 0.0
-    n = len(corners)
-    for i in xrange(n):
-        j = (i + 1) % n
-        area += corners[i][0] * corners[j][1]
-        area -= corners[j][0] * corners[i][1]
-    return abs(area) / 2.0
-
-
-def calculate_area(vor):
-    regions = (vor.regions[regi] for regi in vor.point_region)
-    return np.array([0 if -1 in reg else poly_area(vor.vertices[reg])
-                     for reg in regions])
-    
-def build_voronoi_ridge_index(vor, liquid_id):    
-    index = vor.ridge_points
-    index = np.vstack((index, index[:,::-1]))
-    index_dict = dict()
-    for lid in liquid_id:
-        index_dict[lid] = index[index[:,0] == lid][:,1]
-    return index_dict
-
-def voronoi_neighbor(liquid, index):
-    """
-    liquid: index of particle identified as liquid, np.array
-    index: a 2D array 
-    """
-    vor_liquid = list()
-    for liq in liquid:
-        neighbors = index[liq]
-        qualified_neighbor = np.isin(neighbors, liquid)
-        threshold = np.sum(qualified_neighbor)/float(len(neighbors))
-        if threshold > 0.5:
-            vor_liquid.append(liq)
-    return np.array(vor_liquid)
-    
-def vornoi_liquid(xys, ids, sidelength, hist = False, plot_area = True):
-    vor = Voronoi(xys)
-    temp = calculate_area(vor)
-    threshold = temp <= 4000
-    liquid_id = list(np.where(np.array(ids) == 0)[0])
-    index_dict = build_voronoi_ridge_index(vor, liquid_id)
-    vor_liquid = voronoi_neighbor(liquid_id, index_dict)
-
-    area = temp[vor_liquid]
-    #area = area[area <= 1400]
-    number_liquid = len(area)    
-    total_area = np.sum(area)
-    if hist:
-        ids = np.asarray(ids)
-        fig, ax = plt.subplots()
-        ax.hist(temp[ids], 50, range=[500, 1500], log=True)
-        ax.hist(temp[~ids], 50, range=[500, 1500], log=True)
-        plt.show()
-    if plot_area:
-        xys = np.array(xys)
-        """
-        ys = xys[threshold][:,0]
-        xs = xys[threshold][:,1]     
-        f, a = plt.subplots(2,1, figsize=(10,20))
-        im0 = a[0].scatter(xs, ys , c = temp[threshold], cmap = 'Paired')
-        #final_liquid = np.zeros_like(ids)
-        #final_liquid[vor_liquid] == 1
-        a[1].scatter(xys[:,1], 1024-xys[:,0], c = np.array(ids), cmap = 'Paired')
-        cax0 = f.add_axes([0.1, 0.9, 0.7, 0.025])
-        f.colorbar(im0, cax=cax0, orientation='horizontal')
-        plt.show()
-        """
-        fig_v, ax_v = plt.subplots(3,1,figsize = (15,45))
-        voronoi_plot_2d(vor, ax = ax_v[0], show_points = False, show_vertices = False)
-        ax_v[0].scatter(xys[:,0], xys[:,1], c = np.array(ids), cmap = 'Paired')
-        voronoi_plot_2d(vor, ax = ax_v[1], show_points = False, show_vertices = False)
-        final_liquid = np.zeros_like(ids)
-        final_liquid[vor_liquid] = 1
-        ax_v[1].scatter(xys[:,0], xys[:,1], c = final_liquid, cmap = 'Paired')
-        voronoi_plot_2d(vor, ax = ax_v[2], show_points = False, show_vertices = False)
-        im1 = ax_v[2].scatter(xys[threshold][:,0], xys[threshold][:,1], c = temp[threshold], cmap = 'Paired')
-        #cax0 = fig_v.add_axes([0.1,0.9,0.7,0.025])
-        cax1 = fig_v.add_axes([0.1,0.35,0.7,0.02])
-        #fig_v.colorbar(im0, cax = cax0, orientation = 'horizontal')
-        fig_v.colorbar(im1, cax = cax1, orientation = 'horizontal')
-        plt.show()    
-    liquid_density = number_liquid * sidelength ** 2 / total_area
-    return liquid_density, temp
-    
-
-
 class phase_coex:
     def __init__(self, prefix, number_config = 200, config_len = 50, real_particle = 0.2, fps = 2.5, \
-                 nearest_neighbor_number = 5,  plot_check = False, solid_den_test = False,\
-                 test_layer = 2, vomega = 0.12):
+                 nearest_neighbor_number = 5,  plot_check = False, test_layer = 2, vomega = 0.12):
         self.prefix = prefix
         self.number_config = number_config
         self.config_len = config_len
@@ -120,11 +31,9 @@ class phase_coex:
         self.load_and_process()
         parent_direct = os.path.abspath(os.path.join(self.prefix, os.pardir))
         self.plot_check = plot_check
-        self.solid_den_test = solid_den_test
         self.vomega_criteria = vomega
         self.test_layer = test_layer
-        if self.solid_den_test:
-            self.solid_density = list()
+        self.solid_density = list()
         self.save_name = parent_direct + '/config_vdata.npy'
         vdata_file = self.save_name
         if os.path.isfile(vdata_file):
@@ -229,9 +138,8 @@ class phase_coex:
             qualify_id_set = set(qualify_id)            
             order_mask, vr_mask, vomega_mask = self.solid_criteria(order_para_mean, vr_mean, vomega_list)
             
-            fdata = helpy.load_framesets(v_data)
-            if self.solid_den_test:                
-                self.solid_density.append(self.get_solid_density(fdata))
+            fdata = helpy.load_framesets(v_data)              
+                
             
             # find the frame where contains all the qualified particles
             count = 0
@@ -248,6 +156,10 @@ class phase_coex:
             track_mask = np.asarray(track_mask)            
             #build KDTree to query the nearest neighbor
             xys = helpy.consecutive_fields_view(fdata[startframe][track_mask], 'xy')
+            disp = xys - [self.x0, self.y0]
+            radial = np.hypot(*disp.T)
+            criteria = self.R - 1.4*self.side_len
+            radial_mask = radial >= criteria
             #switch x, y coordinate into the regular orientation
             xys = xys[:,::-1]
             xys[:,1] = 1024 - xys[:,1]
@@ -281,10 +193,11 @@ class phase_coex:
             solid_number = np.sum(qualified_solid)
             self.solids.append(solid_number) 
                        
-            plot_vor = startframe < 100
-            self.liquid_density.append(self.density_calculation(solid_number, len(qualify_id), \
-                                                                xys, qualified_solid, plot_vor))
+            plot_vor = startframe < 50
+            rho_liquid, rho_solid = self.density_calculation(solid_number, len(qualify_id), xys, qualified_solid, plot_vor, radial_mask)
+            self.liquid_density.append(rho_liquid)
             self.solid_fraction.append(float(solid_number)/len(qualify_id))
+            self.solid_density.append(rho_solid)
             
             if plot_number < self.plot_check:
                 xs = helpy.consecutive_fields_view(fdata[startframe][track_mask],'x')
@@ -296,20 +209,22 @@ class phase_coex:
         return len(qualify_id)
         
     
-    def density_calculation(self, number_of_solids, total_number, xys, ids, plot_vor):
+    def density_calculation(self, number_of_solids, total_number, xys, ids, plot_vor, radial_mask):
         solids_area =  self.real_particle ** 2 * number_of_solids / 0.95347
         fraction = solids_area/self.system_area
-        if fraction < 0.3:
+        if fraction < 0.1:
             liquid_area = self.system_area - solids_area
             number_liquid = total_number - number_of_solids
             rho_liquid = number_liquid * self.real_particle ** 2/ float(liquid_area)
+            rho_solid = 0
         else:
-            hist = True if fraction > 1 else False
-            rho_liquid, varea = vornoi_liquid(xys, ids, self.side_len, hist, plot_vor)
+            hist = False
+            ratio = 0.5 if fraction > 0.85 else 0.75
+            rho_liquid, rho_solid, varea = vornoi_liquid(xys, ids, self.side_len, ratio,  hist, plot_vor, radial_mask)
             ids = np.asarray(ids)
             self.solid_vor_area = np.append(self.solid_vor_area, varea[ids])
             self.liquid_vor_area = np.append(self.liquid_vor_area, varea[~ids])
-        return rho_liquid
+        return rho_liquid, rho_solid
         
     
     def plot_check_solid(self,xs,ys, vr_mean, vr_mask, dot_mean_list, order_mask, \
@@ -317,23 +232,6 @@ class phase_coex:
         #fig_omega, ax_omga = plt.subplots(figsize = (5,5))
         #omga_img = ax_omga.scatter(ys,1024 - xs, c = vomega_list, cmap = 'Paired')
         #fig_omega.colorbar(omga_img)
-        """
-        fig, ax = plt.subplots(2,2,figsize = (20,20))
-        cax0 = fig.add_axes([0.2, 0.9, 0.25, 0.025])
-        cax1 = fig.add_axes([0.6, 0.9, 0.25, 0.025])
-        cax2 = fig.add_axes([0.2, 0.5, 0.25, 0.025])
-        cax3 = fig.add_axes([0.6, 0.5, 0.25, 0.025])
-        im0 = ax[0,0].scatter(ys,1024 - xs, c = vr_mean,  cmap='Paired')
-        im1 = ax[0,1].scatter(ys,1024 - xs, c = final_mask ,  cmap='Paired')
-        im2 = ax[1,0].scatter(ys,1024 - xs, c = vomega_list,  cmap='Paired')
-        # need the order paramter criteria
-        #im3 = ax[1,1].scatter(ys,1024 - xs, c = final_mask & vomega_mask & order_mask,  cmap='Paired')
-        im3 = ax[1,1].scatter(ys,1024 - xs, c = qualified_solid, cmap='Paired')
-        fig.colorbar(im0, cax=cax0, orientation='horizontal')
-        fig.colorbar(im1, cax=cax1, orientation='horizontal')
-        fig.colorbar(im2, cax=cax2, orientation='horizontal')
-        fig.colorbar(im3, cax=cax3, orientation='horizontal')
-        """
         solid_fig, solid_ax = plt.subplots(figsize = (10,10))
         solid_ax.scatter(ys, 1024-xs, c = qualified_solid, cmap = 'Paired')
         solid_ax.set_xticks([])
@@ -342,6 +240,7 @@ class phase_coex:
                           dpi = 400, bbox_inches = 'tight')
         plt.show()
         return
+
     
     def get_solid_density(self, fdata):
         inner = self.R - self.test_layer * self.side_len
