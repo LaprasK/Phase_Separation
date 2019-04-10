@@ -193,7 +193,7 @@ class phase_coex:
             solid_number = np.sum(qualified_solid)
             self.solids.append(solid_number) 
                        
-            plot_vor = startframe < 50
+            plot_vor = startframe < 550
             rho_liquid, rho_solid = self.density_calculation(solid_number, len(qualify_id), xys, qualified_solid, plot_vor, radial_mask)
             self.liquid_density.append(rho_liquid)
             self.solid_fraction.append(float(solid_number)/len(qualify_id))
