@@ -116,6 +116,10 @@ def voronoi_liquid(xys, ors, disp, ids, sidelength, ratio,  hist = False, plot_a
         ors, orientation of particles: N array
         ids, an array of True or False mask, if True we think it's solid, False otherwise
         ratio: threshold #liquid_neighbor/#neighbor, float
+    Output:
+        densities: a float number 
+        temp: voronoi area of each particle
+        order: a float number means molecular order
     """
     vor = Voronoi(xys)
     temp = calculate_area(vor)
@@ -136,6 +140,10 @@ def voronoi_liquid(xys, ors, disp, ids, sidelength, ratio,  hist = False, plot_a
     qualified_solid, interface = solid_interface(solid_id, liquid_id, interface, index_dict)
     liquid_area = temp[vor_liquid]
     liquid_density = density_calculation(liquid_area, sidelength)
+    # get solid liquid fraction
+    ncount = len(qualified_solid) + len(vor_liquid) + len(interface)
+    liquid_fraction = len(vor_liquid)/float(ncount)
+    solid_fraction = len(qualified_solid)/float(ncount)
     ##########################################################
     # get order parameter for two phases
     ##########################################################
@@ -187,6 +195,6 @@ def voronoi_liquid(xys, ors, disp, ids, sidelength, ratio,  hist = False, plot_a
         cax1 = fig_v.add_axes([0.1,0.35,0.7,0.02])
         #fig_v.colorbar(im0, cax = cax0, orientation = 'horizontal')
         fig_v.colorbar(im1, cax = cax1, orientation = 'horizontal')
-        plt.show()    
-    return liquid_density, solid_density, temp, g_liquid_order, g_solid_order
+        plt.show()   
+    return liquid_density, solid_density, temp, g_liquid_order, g_solid_order, solid_fraction, liquid_fraction
     
