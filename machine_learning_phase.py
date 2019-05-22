@@ -16,6 +16,7 @@ from vor_geometry import *
 import velocity
 from collections import defaultdict
 import os
+from shapely.geometry import Point
 
 
 class phase_coex(object):
@@ -34,12 +35,9 @@ class phase_coex(object):
         self.plot_check = plot_check
         self.vomega_criteria = vomega
         self.test_layer = test_layer
-        self.solid_density = list()
         self.save_name = parent_direct + '/config_vdata.npy'
         self.result_name = parent_direct + '/phase_data.npy'
         vdata_file = self.save_name
-        self.solid_molecular_order = list()
-        self.liquid_molecular_order = list()
         if os.path.isfile(vdata_file):
             self.config_vdata = np.load(vdata_file).item()
             if len(self.config_vdata.keys()) != number_config:
@@ -54,6 +52,7 @@ class phase_coex(object):
         self.side_len = self.R * self.real_particle /4.0  ##4inch in experiment 
         self.max_dist = self.side_len/1.25        
         self.frames = self.pdata['f']
+        self.boundary_shape = Point(self.y0, 1024 - self.x0).buffer(self.R)
         
         
     def track_config(self, pdata, startframe):
@@ -179,8 +178,11 @@ class phase_coex(object):
         self.solids = []
         self.detect = []
         self.liquid_density = list()
+        self.solid_density = list()
         self.solid_fraction = list()
         self.liquid_fraction = list()
+        self.solid_molecular_order = list()
+        self.liquid_molecular_order = list()
         self.xys = dict()
         self.final_id = dict()
         self.solid_vor_area = np.empty(0)
@@ -275,22 +277,40 @@ class phase_coex(object):
                                       order_mask,vomega_list, vomega_mask, final_mask,\
                                       qualified_solid)
                 plot_number += 1
+        self.save_phase()
         return len(qualify_id)
         
     
     def density_calculation(self, number_of_solids, total_number, xys, ors, disp, ids, plot_vor, radial_mask):
         solids_area =  self.real_particle ** 2 * number_of_solids / 0.95347
         fraction = solids_area/self.system_area
-        if fraction < 0.1:
+        #if fraction < 0.1:
+        if False:
             liquid_area = self.system_area - solids_area
             number_liquid = total_number - number_of_solids
             rho_liquid = number_liquid * self.real_particle ** 2/ float(liquid_area)
-            rho_solid = 0
+            rho_solid = np.nan
+            inside_total = np.sum(radial_mask)
+            if np.sum(radial_mask & ids) >= 2:
+                xy_inside = disp[radial_mask & ids]
+                or_inside = ors[radial_mask & ids]
+                angles = np.arctan2(*[xy_inside[:,1], xy_inside[:,0]])
+                cors = angles % (2*np.pi)
+                solid_ors = or_inside - cors
+                sorder = global_orient(solid_ors)
+            else:
+                sorder = np.nan
+            inside_mask = np.invert(ids) & radial_mask
+            inside_liquid = ors[inside_mask]
+            self.liquid_molecular_order.append(global_orient(inside_liquid))
+            self.liquid_fraction.append(len(inside_liquid)/float(inside_total))
+            self.solid_fraction.append(1-len(inside_liquid)/float(inside_total))
+            self.solid_molecular_order.append(sorder)
         else:
             hist = False
             ratio = 0.5 if fraction > 0.85 else 0.75
             rho_liquid, rho_solid, varea, liquid_order, solid_order, solid_fraction, liquid_fraction = \
-                voronoi_liquid(xys, ors, disp, ids, self.side_len, ratio,  hist, plot_vor, radial_mask)
+                voronoi_liquid(xys, ors, disp, ids, self.side_len, ratio, self.boundary_shape, hist, plot_vor, radial_mask)
             ids = np.asarray(ids)
             self.solid_molecular_order.append(solid_order)
             self.liquid_molecular_order.append(liquid_order)
