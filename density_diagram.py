@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+c#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
 Created on Thu Feb 21 15:12:36 2019
@@ -6,7 +6,8 @@ Created on Thu Feb 21 15:12:36 2019
 @author: zhejun
 """
 
-from phase_separation_class import phase_coex
+#from phase_separation_class import phase_coex
+from machine_learning_phase import phase_coex
 import numpy as np 
 import matplotlib.pyplot as plt
 from ring_motion import Find_Direct
@@ -15,11 +16,22 @@ import os
 
 
 class phase_diagram:
-    def __init__(self, path, plot_check = 0, particle_size = 0.2, load_data = True, vomega = 0.15):
+    """
+    path: directory containing different density data result
+    for each density, do the phase separation information analysis:
+        liquid density, solid density, liquid molecular order, solid molecular order and solid particle fraction
+    put them in the phase diagram class.
+    """
+    def __init__(self, path, plot_check = 0, particle_size = 0.2, load_data = True, single_data = True, vomega = 0.1):
+        """
+        load_data: combine all information in each density into one dictionary
+        single_data: for each density whether load pre-saved data information
+        """
         self.path = path
         self.plot_check = plot_check
         #self.solid_density = solid_density
         self.load = load_data
+        self.load_single_density_data = single_data
         self.vomega = vomega
         self.density_dict = self.build_density(self.path, self.plot_check)
         self.particle_size = particle_size
@@ -27,14 +39,27 @@ class phase_diagram:
         
     
     def single_density_load(self, prefix, plot_check = 0 ):
+        print(prefix)
         phase = phase_coex(prefix, plot_check= plot_check, vomega = self.vomega)
-        total_number= phase.phase_detection()
-        liquid = phase.liquid_density
-        solid_fraction = phase.solid_fraction
-        solid = list()
-        
-        solid = phase.solid_density
-        return {total_number: (liquid, solid, solid_fraction, prefix)}  
+        parent_direct = os.path.abspath(os.path.join(prefix, os.pardir))
+        file_name = os.path.join(parent_direct, 'phase_data.npy')
+        if self.load_single_density_data and os.path.isfile(file_name):
+            result = np.load(file_name).item()
+            liquid = result['liquid_density']
+            solid = result['solid_density']
+            solid_fraction = result['solid_fraction']
+            liquid_order = result['liquid_order']
+            solid_order = result['solid_order']
+            total_number = int(prefix.split('/')[-2])
+            print(total_number)
+        else:
+            total_number= phase.phase_detection()
+            liquid = phase.liquid_density
+            liquid_order = phase.liquid_molecular_order
+            solid_fraction = phase.solid_fraction
+            solid = phase.solid_density
+            solid_order = phase.solid_molecular_order
+        return {total_number: (liquid, solid, solid_fraction, liquid_order, solid_order, prefix)}  
     
     def build_density(self, path, plot_check = 0):
         prefixs = Find_Direct(path)
@@ -69,7 +94,7 @@ class phase_diagram:
         ax.set_xlim([0,1])
         ax.set_ylabel(name, fontsize = 25)
         ax.axvspan(0.5, 0.93, facecolor='#2ca02c', alpha=0.2)
-        ax.text(0.56, 0.35, "Phase Coexistence", fontsize = 28)
+        ax.text(text_position[0], text_position[1], "Phase Coexistence", fontsize = 28)
         ax.axvline(0.5, color = 'black', ls = '--', lw= 3)
         #ax.annotate("Phase Coexistence", arrow_position, xytext=(arrow_position[0] - 0.24, arrow_position[1]+0.1),arrowprops=dict(facecolor='black', width=2),fontsize =22)
         ax.tick_params(length=6, width=2, labelsize=20)
@@ -80,18 +105,22 @@ class phase_diagram:
     def phase_plot(self):
         self.diagram_data = defaultdict(list)
         sort_key = sorted(self.density_dict.keys())
+        quant_name = ['liquid', 'solid', 'solid_fraction', 'liquid_order', 'solid_order']
         for key in sort_key:
             value = self.density_dict[key]
-            self.diagram_data['density'].append(key/self.total)
-            self.diagram_data['liquid'].append(np.mean(value[0]))
-            self.diagram_data['liquid_err'].append(np.std(value[0]))
-            self.diagram_data['solid'].append(np.mean(value[1]))
-            self.diagram_data['solid_err'].append(np.std(value[1]))
-            self.diagram_data['solid_fraction'].append(np.mean(value[2]))
-            self.diagram_data['solid_fraction_err'].append(np.std(value[2]))
+            self.diagram_data['density'].append(key/float(self.total))
+            for quant, one_v in zip(quant_name, value[:-1]):
+                self.diagram_data[quant].append(np.nanmean(one_v))
+                self.diagram_data[quant+'_err'].append(np.nanstd(one_v))
+
         self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['liquid'], \
                                   self.diagram_data['liquid_err'], 'Liquid Density', (0.51,0.51) )
         self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid'], \
-                                  self.diagram_data['solid_err'], 'Density Close to Boundary')
+                                  self.diagram_data['solid_err'], 'Solid Density', (0.51,0.7    ))
         self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid_fraction'],\
-                                  self.diagram_data['solid_fraction_err'], 'Solid Number Fraction', (0.51,0.05))
+                                  self.diagram_data['solid_fraction_err'], 'Solid Number Fraction', (0.51,0.35))
+        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['liquid_order'],\
+                                  self.diagram_data['liquid_order_err'], 'Liquid Molecular Order', (0.51,0.2))
+        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid_order'],\
+                                  self.diagram_data['solid_order_err'], 'Solid Molecular Order', (0.51,0.72))
+        np.save(os.path.join(self.path,'diagram_data.npy'),dict(self.diagram_data))

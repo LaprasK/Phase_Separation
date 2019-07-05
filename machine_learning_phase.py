@@ -55,6 +55,17 @@ class phase_coex(object):
         self.boundary_shape = Point(self.y0, 1024 - self.x0).buffer(self.R)
         
         
+    def rechoose_boundary(self):
+        meta = helpy.load_meta(self.prefix)
+        boundary, path = ring_motion.find_boundary(self.prefix)
+        meta.update(boundary = boundary)
+        meta['path_to_tiffs'] = path
+        helpy.save_meta(self.prefix, meta)
+        self.x0, self.y0, self.R = boundary
+        self.side_len = self.R * self.real_particle /4.0
+        self.boundary_shape = Point(self.y0, 1024 - self.x0).buffer(self.R)
+        return
+        
     def track_config(self, pdata, startframe):
         pfsets = helpy.load_framesets(pdata)
         pftrees = {f: KDTree(helpy.consecutive_fields_view(pfset, 'xy'),
@@ -185,8 +196,8 @@ class phase_coex(object):
         self.liquid_molecular_order = list()
         self.xys = dict()
         self.final_id = dict()
-        self.solid_vor_area = np.empty(0)
-        self.liquid_vor_area = np.empty(0)
+        self.vor_area = list()
+        #self.liquid_vor_area = np.empty(0)
         plot_number = 0
         sorted_keys = sorted(self.config_vdata.keys())
         for startframe in sorted_keys:                
@@ -284,41 +295,19 @@ class phase_coex(object):
     def density_calculation(self, number_of_solids, total_number, xys, ors, disp, ids, plot_vor, radial_mask):
         solids_area =  self.real_particle ** 2 * number_of_solids / 0.95347
         fraction = solids_area/self.system_area
-        #if fraction < 0.1:
-        if False:
-            liquid_area = self.system_area - solids_area
-            number_liquid = total_number - number_of_solids
-            rho_liquid = number_liquid * self.real_particle ** 2/ float(liquid_area)
-            rho_solid = np.nan
-            inside_total = np.sum(radial_mask)
-            if np.sum(radial_mask & ids) >= 2:
-                xy_inside = disp[radial_mask & ids]
-                or_inside = ors[radial_mask & ids]
-                angles = np.arctan2(*[xy_inside[:,1], xy_inside[:,0]])
-                cors = angles % (2*np.pi)
-                solid_ors = or_inside - cors
-                sorder = global_orient(solid_ors)
-            else:
-                sorder = np.nan
-            inside_mask = np.invert(ids) & radial_mask
-            inside_liquid = ors[inside_mask]
-            self.liquid_molecular_order.append(global_orient(inside_liquid))
-            self.liquid_fraction.append(len(inside_liquid)/float(inside_total))
-            self.solid_fraction.append(1-len(inside_liquid)/float(inside_total))
-            self.solid_molecular_order.append(sorder)
-        else:
-            hist = False
-            ratio = 0.5 if fraction > 0.85 else 0.75
-            rho_liquid, rho_solid, varea, liquid_order, solid_order, solid_fraction, liquid_fraction = \
-                voronoi_liquid(xys, ors, disp, ids, self.side_len, ratio, self.boundary_shape, hist, plot_vor, radial_mask)
-            ids = np.asarray(ids)
-            self.solid_molecular_order.append(solid_order)
-            self.liquid_molecular_order.append(liquid_order)
-            self.solid_vor_area = np.append(self.solid_vor_area, varea[ids])
-            self.liquid_vor_area = np.append(self.liquid_vor_area, varea[~ids])
-            self.solid_fraction.append(solid_fraction)
-            self.liquid_fraction.append(liquid_fraction)
-        return rho_liquid, rho_solid
+        hist = False
+        ratio = 0.5 if fraction > 0.85 else 0.75
+        #rho_liquid, rho_solid, varea, liquid_order, solid_order, solid_fraction, liquid_fraction = \
+        ret_dict = voronoi_liquid(xys, ors, disp, ids, self.side_len, ratio, self.boundary_shape, hist, plot_vor, radial_mask)
+        
+        #ids = np.asarray(ids)
+        vor_liquid, solid_id, interface = ret_dict['ids']
+        self.solid_molecular_order.append(ret_dict['solid_order'])
+        self.liquid_molecular_order.append(ret_dict['liquid_order'])
+        self.vor_area.append(ret_dict['area'])
+        self.solid_fraction.append(ret_dict['solid_fraction'])
+        self.liquid_fraction.append(ret_dict['liquid_fraction'])
+        return ret_dict['liquid_density'], ret_dict['solid_density']
         
     
     def plot_check_solid(self,xs,ys, vr_mean, vr_mask, dot_mean_list, order_mask, \

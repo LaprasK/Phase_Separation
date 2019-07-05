@@ -30,7 +30,7 @@ def calculate_area(vor):
 
 
 
-def voronoi_polygons(voronoi, diameter):
+def voronoi_polygons(voronoi, diameter, boundary):
     """Generate shapely.geometry.Polygon objects corresponding to the
     regions of a scipy.spatial.Voronoi object, in the order of the
     input points. The polygons for the infinite regions are large
@@ -55,12 +55,16 @@ def voronoi_polygons(voronoi, diameter):
             direction = np.sign(np.dot(midpoint - centroid, n)) * n
             ridge_direction[p, v].append(direction)
             ridge_direction[q, v].append(direction)
-
+    
+    ret_areas = list()
+    inter_polygon = list()
     for i, r in enumerate(voronoi.point_region):
         region = voronoi.regions[r]
         if -1 not in region:
             # Finite region.
-            yield Polygon(voronoi.vertices[region])
+            single_poly = Polygon(voronoi.vertices[region])
+            inter_polygon.append(single_poly.intersection(boundary))
+            ret_areas.append(single_poly.intersection(boundary).area)
             continue
         # Infinite region.
         inf = region.index(-1)              # Index of vertex at infinity.
@@ -82,7 +86,11 @@ def voronoi_polygons(voronoi, diameter):
         finite_part = voronoi.vertices[region[inf + 1:] + region[:inf]]
         extra_edge = [voronoi.vertices[j] + dir_j * length,
                       voronoi.vertices[k] + dir_k * length]
-        yield Polygon(np.concatenate((finite_part, extra_edge)))
+        single_poly = Polygon(np.concatenate((finite_part, extra_edge)))
+        inter_polygon.append(single_poly.intersection(boundary))
+        ret_areas.append(single_poly.intersection(boundary).area)
+    return inter_polygon, np.array(ret_areas)
+    
 
 def finite_voronoi(vor, boundary_shape):
     areas = list()
@@ -106,7 +114,7 @@ def build_voronoi_neighbor_dict(vor):
         neighbor_dict[row[0]].append(row[1])
     return dict(neighbor_dict)
 
-def voronoi_neighbor(liquid, index, area, ratio = 0.75):
+def liquid_interface(liquid, index, area, ratio = 0.75):
     """
     input:
         liquid: index of particle identified as liquid, np.array
@@ -122,11 +130,10 @@ def voronoi_neighbor(liquid, index, area, ratio = 0.75):
         neighbors = index[liq]
         qualified_neighbor = np.isin(neighbors, liquid)
         threshold = np.sum(qualified_neighbor)/float(len(neighbors))
-        if area[liq] > 200:
-            if threshold >= ratio:
-                vor_liquid.append(liq)
-            else:
-                interface.append(liq)
+        if threshold >= ratio:
+            vor_liquid.append(liq)
+        else:
+            interface.append(liq)
     return np.array(vor_liquid), np.array(interface)
 
 def solid_interface(solid_id, liquid_id, interface, index_dict):
@@ -147,7 +154,10 @@ def density_calculation(area, sidelength):
     return particle_area/float(total_area)
 
 
-def bond_orient(xys, neighbor_dict, fold = 6):
+def local_bond_orient(xys, neighbor_dict, fold = 6):
+    '''
+    return local bond orientation order parameter
+    '''
     sort_key = np.sort(neighbor_dict.keys())
     ret = list()
     for key in sort_key:
@@ -158,6 +168,9 @@ def bond_orient(xys, neighbor_dict, fold = 6):
     return ret
 
 def orient_param(ors, neighbor_dict, fold = 4):
+    '''
+    return local orientation order parameter
+    '''
     skey = np.sort(neighbor_dict.keys())
     ret = list()
     for key in skey:
@@ -171,6 +184,24 @@ def orient_param(ors, neighbor_dict, fold = 4):
 def global_orient(ors, fold = 4):
     return np.abs(np.mean(np.exp(fold * 1j * ors)))
     
+
+"""
+class vor:
+    def __init__(self, xys, ors, disp, dynamic_solid, sidelength, ratio, boundary_shape, hist = False, plot_area = 1, radial_mask = []):
+        self.xys = xys
+        self.ors = ors
+        self.disp = disp
+        self.dynamic_solid = dynamic_solid
+        self.sidelength = sidelength
+        self.ratio = ratio
+        self.boundary_shape = boundary_shape
+        self.hist = hist
+        self.plot_area = plot_area
+        self.radial_mask = radial_mask
+"""     
+
+
+
    
 def voronoi_liquid(xys, ors, disp, ids, sidelength, ratio,  boundary_shape, hist = False, plot_area = 1, radial_mask = []):
     """
@@ -184,31 +215,49 @@ def voronoi_liquid(xys, ors, disp, ids, sidelength, ratio,  boundary_shape, hist
         temp: voronoi area of each particle
         order: a float number means molecular order
     """
+    ret_dict = dict()
     vor = Voronoi(xys)
     #temp = calculate_area(vor)
-    temp = finite_voronoi(vor, boundary_shape)
-    t1 = temp <= 1200
+    #temp = finite_voronoi(vor, boundary_shape)
+    polygons, temp = voronoi_polygons(vor, 300, boundary_shape)
+    ret_dict['area'] = temp
+    #t1 = temp <= 1200
     t2 = temp > 200
     #reverse_mask = 1 - radial_mask
     # this threshold can exclude boundary particles
-    threshold = t1&t2
+    threshold = t2
     # id of liquid
-    liquid_id = list(np.where(np.array(np.array(ids) + radial_mask) == 0)[0])
+    #liquid_id = list(np.where(np.array(np.array(ids) + radial_mask) == 0)[0])
+    liquid_id = list(np.where(np.array(np.array(ids)) == 0)[0])
     # dictionary: key, pt_id; value, neighbors
     index_dict = build_voronoi_neighbor_dict(vor)
     # vor_liquid is the id for liquids
-    vor_liquid, interface = voronoi_neighbor(liquid_id, index_dict, temp,ratio)
+    vor_liquid, interface = liquid_interface(liquid_id, index_dict, temp,ratio)
     #print(threshold)
     qualified_solid = ids & threshold
     solid_id = np.where(qualified_solid == 1)[0]
     # qualified_solid is the id for solids, interface is id for interfacial particles
     qualified_solid, interface = solid_interface(solid_id, liquid_id, interface, index_dict)
-    liquid_area = temp[vor_liquid]
-    liquid_density = density_calculation(liquid_area, sidelength)
+    local_bond_6 = local_bond_orient(xys, index_dict, fold = 6)
+    local_bond_4 = local_bond_orient(xys, index_dict, fold = 4)
+    local_orient = orient_param(ors, index_dict, 4)
+    if len(vor_liquid) != 0:
+        liquid_area = temp[vor_liquid]
+        liquid_density = density_calculation(liquid_area, sidelength)
+        liquid_ors = ors[vor_liquid]
+        g_liquid_order = global_orient(liquid_ors)
+    else:
+        liquid_density = np.nan
+        g_liquid_order = np.nan
+    ret_dict['liquid_density'] = liquid_density
+    ret_dict['liquid_order'] = g_liquid_order
     # get solid liquid fraction
     ncount = len(qualified_solid) + len(vor_liquid) + len(interface)
     liquid_fraction = len(vor_liquid)/float(ncount)
     solid_fraction = len(qualified_solid)/float(ncount)
+    ret_dict['ids'] = vor_liquid, qualified_solid, interface
+    ret_dict['liquid_fraction'] = liquid_fraction
+    ret_dict['solid_fraction'] = solid_fraction
     ##########################################################
     # get order parameter for two phases
     ##########################################################
@@ -225,36 +274,46 @@ def voronoi_liquid(xys, ors, disp, ids, sidelength, ratio,  boundary_shape, hist
         cors = angles % (2*np.pi)
         g_solid_ors = solid_ors - cors
         g_solid_order = global_orient(g_solid_ors)
-        # solid density cal
+        # solid density calculation
         solid_area = temp[qualified_solid]    
         solid_density = density_calculation(solid_area, sidelength)
+        # solid local bond
+        #local_bond_orient(solid_xys, , fold = 6)
     else:
         g_solid_order = np.nan
         solid_density = np.nan
-    liquid_ors = ors[vor_liquid]
-    g_liquid_order = global_orient(liquid_ors)
+    ret_dict['solid_density'] = solid_density
+    ret_dict['solid_order'] = g_solid_order
+    
+
 
     if hist:
         ids = np.asarray(ids)
         fig, ax = plt.subplots()
-        ax.hist(temp[ids], 50, range=[500, 1500], log=True)
-        ax.hist(temp[~ids], 50, range=[500, 1500], log=True)
+        ax.hist(temp[ids], 50,  log=True)
+        ax.hist(temp[~ids], 50, log=True)
         plt.show()
     if plot_area:
         xys = np.array(xys)
         fig_v, ax_v = plt.subplots(2,1,figsize = (15,15*2))
-        voronoi_plot_2d(vor, ax = ax_v[0], show_points = False, show_vertices = False)
+        #voronoi_plot_2d(vor, ax = ax_v[0], show_points = False, show_vertices = False)
+        for p in polygons:
+            x, y = zip(*p.exterior.coords)
+            ax_v[0].plot(x,y,'k-')
+            ax_v[1].plot(x,y,'k-')
         ax_v[0].scatter(xys[:,0], xys[:,1], c = np.array(ids), cmap = 'Paired')
-        voronoi_plot_2d(vor, ax = ax_v[1], show_points = False, show_vertices = False)
-        final_liquid = np.zeros_like(ids)
-        final_liquid[vor_liquid] = 1
-        final_category = np.zeros(len(ids))
+        #voronoi_plot_2d(vor, ax = ax_v[1], show_points = False, show_vertices = False)
+        
+        
+        
         if np.any(interface):
-            final_category[interface] = 0.9
+            ax_v[1].scatter(xys[:,0][interface], xys[:,1][interface], c = 'yellow')
         if np.sum(qualified_solid):
-            final_category[qualified_solid] = 1
-        final_category[vor_liquid] = 0.3
-        ax_v[1].scatter(xys[:,0], xys[:,1], c = final_category, cmap = 'Paired')
+            ax_v[1].scatter(xys[:,0][qualified_solid], xys[:,1][qualified_solid], c = '#D2691E')
+        if len(vor_liquid)!= 0:
+            ax_v[1].scatter(xys[:,0][vor_liquid], xys[:,1][vor_liquid], c = 'green')
+    
+        
         #voronoi_plot_2d(vor, ax = ax_v[2], show_points = False, show_vertices = False)
         #thre = temp < 5000
         #im1 = ax_v[2].scatter(xys[thre][:,0], xys[thre][:,1], c = temp[thre], cmap = 'Paired')
@@ -262,6 +321,7 @@ def voronoi_liquid(xys, ors, disp, ids, sidelength, ratio,  boundary_shape, hist
         #cax1 = fig_v.add_axes([0.1,0.35,0.7,0.02])
         #fig_v.colorbar(im0, cax = cax0, orientation = 'horizontal')
         #fig_v.colorbar(im1, cax = cax1, orientation = 'horizontal')
-        plt.show()   
-    return liquid_density, solid_density, temp, g_liquid_order, g_solid_order, solid_fraction, liquid_fraction
+        plt.show()
+    return ret_dict
+    #return liquid_density, solid_density, temp, g_liquid_order, g_solid_order, solid_fraction, liquid_fraction
     
