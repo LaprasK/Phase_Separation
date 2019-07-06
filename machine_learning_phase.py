@@ -298,15 +298,8 @@ class phase_coex(object):
         hist = False
         ratio = 0.5 if fraction > 0.85 else 0.75
         #rho_liquid, rho_solid, varea, liquid_order, solid_order, solid_fraction, liquid_fraction = \
-        ret_dict = voronoi_liquid(xys, ors, disp, ids, self.side_len, ratio, self.boundary_shape, hist, plot_vor, radial_mask)
-        
-        #ids = np.asarray(ids)
-        vor_liquid, solid_id, interface = ret_dict['ids']
-        self.solid_molecular_order.append(ret_dict['solid_order'])
-        self.liquid_molecular_order.append(ret_dict['liquid_order'])
-        self.vor_area.append(ret_dict['area'])
-        self.solid_fraction.append(ret_dict['solid_fraction'])
-        self.liquid_fraction.append(ret_dict['liquid_fraction'])
+        #ret_dict = voronoi_liquid(xys, ors, disp, ids, self.side_len, ratio, self.boundary_shape, hist, plot_vor, radial_mask)
+        voronoi = vor_particle(xys, ors, disp, ids, self.side_len, ratio, self.boundary_shape, radial_mask)
         return ret_dict['liquid_density'], ret_dict['solid_density']
         
     

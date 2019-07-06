@@ -185,23 +185,6 @@ def global_orient(ors, fold = 4):
     return np.abs(np.mean(np.exp(fold * 1j * ors)))
     
 
-"""
-class vor:
-    def __init__(self, xys, ors, disp, dynamic_solid, sidelength, ratio, boundary_shape, hist = False, plot_area = 1, radial_mask = []):
-        self.xys = xys
-        self.ors = ors
-        self.disp = disp
-        self.dynamic_solid = dynamic_solid
-        self.sidelength = sidelength
-        self.ratio = ratio
-        self.boundary_shape = boundary_shape
-        self.hist = hist
-        self.plot_area = plot_area
-        self.radial_mask = radial_mask
-"""     
-
-
-
    
 def voronoi_liquid(xys, ors, disp, ids, sidelength, ratio,  boundary_shape, hist = False, plot_area = 1, radial_mask = []):
     """
@@ -324,4 +307,145 @@ def voronoi_liquid(xys, ors, disp, ids, sidelength, ratio,  boundary_shape, hist
         plt.show()
     return ret_dict
     #return liquid_density, solid_density, temp, g_liquid_order, g_solid_order, solid_fraction, liquid_fraction
+
+
+class vor_particle:
+    def __init__(self, xys, ors, disp, dynamic_solid, sidelength, ratio, boundary_shape, \
+                 radial_mask = []):
+        self.xys = xys
+        self.ors = ors
+        self.disp = disp
+        self.dynamic_solid = dynamic_solid
+        self.sidelength = sidelength
+        self.ratio = ratio
+        self.boundary_shape = boundary_shape
+        self.radial_mask = radial_mask
+        self.solid_liquid_interface()
+        self.order_paras()
+        self.solid_local_bond6, self.solid_local_bond4, self.solid_local_mole6, self.solid_local_mole4 = self.local_orders(self.solid_id)
+        self.liquid_local_bond6, self.liquid_local_bond4, self.liquid_local_mole6, self.liquid_local_mole4 = self.local_orders(self.vor_liquid)
+        self.inter_local_bond6, self.inter_local_bond4, self.inter_local_mole6, self.inter_local_mole4 = self.local_orders(self.interface)
+        
+    def solid_liquid_interface(self):
+        #self.ret_dict = dict()
+        self.vor = Voronoi(self.xys)
+        self.polygons, self.areas = voronoi_polygons(self.vor, 300, self.boundary_shape)
+        area_criteria = self.areas > 200
+        liquid_id = list(np.where(np.array(np.array(self.dynamic_solid)) == 0)[0])
+        self.neighbor_dict = build_voronoi_neighbor_dict(self.vor)
+        self.vor_liquid, interface = liquid_interface(liquid_id, self.neighbor_dict, area_criteria, self.ratio)
+        qualified_solid = self.dynamic_solid & area_criteria
+        solid_id = np.where(qualified_solid == 1)[0]
+        self.solid_id, self.interface = solid_interface(solid_id, liquid_id, interface, self.neighbor_dict)
+        
+    def order_paras(self):
+        # liquid orders    
+        if len(self.vor_liquid) != 0:
+            self.liquid_area = self.areas[self.vor_liquid]
+            self.liquid_density = density_calculation(self.liquid_area, self.sidelength)
+            self.global_liquid_order = global_orient(self.ors[self.vor_liquid])
+        else:
+            self.liquid_density = np.nan
+            self.global_liquid_order = np.nan
+        # solid orders
+        
+        if len(self.solid_id) != 0:
+            solid_ors = self.ors[self.solid_id]
+            solid_disp = self.disp[self.solid_id]
+            angles = np.arctan2(*[solid_disp[:,1], solid_disp[:,0]])
+            cors = angles % (2*np.pi)
+            global_solid_ors = solid_ors - cors
+            self.global_solid_order = global_orient(global_solid_ors)
+            self.solid_area = self.areas[self.solid_id]
+            self.solid_density = density_calculation(self.solid_area, self.sidelength)
+        else:
+            self.solid_density = np.nan
+            self.global_solid_order = np.nan              
+            
+        self.ncount = len(self.solid_id) + len(self.interface) + len(self.vor_liquid)
+        self.liquid_fraction = len(self.vor_liquid)/self.ncount
+        self.solid_fraction = len(self.solid_id)/self.ncount
+
+        
+    def local_orders(self, phase_id):
+        sort_key = np.sort(phase_id)
+        local_bond6 = list()
+        local_bond4 = list()
+        local_mole6 = list()
+        local_mole4 = list()
+        for key in sort_key:
+            neighbors = np.array(self.neighbor_dict[key])
+            mask = np.isin(neighbors,phase_id)
+            #bond order
+            disp = self.xys[neighbors][mask] - self.xys[key]
+            angle = np.arctan2(*disp.T)
+            local_bond6.append(np.abs(np.mean(np.exp(1j*6*angle))))
+            local_bond4.append(np.abs(np.mean(np.exp(1j*4*angle))))
+            #molecular order
+            neighbor_ors6 = [np.exp(1j*6*self.ors[ids]) for ids in neighbors[mask]]
+            neighbor_ors6.append(np.exp(6*1j*self.ors[key]))
+            neighbor_ors4 = [np.exp(1j*4*self.ors[ids]) for ids in neighbors[mask]]
+            neighbor_ors4.append(np.exp(4*1j*self.ors[key]))
+            local_mole6.append(np.abs(np.mean(neighbor_ors6)))
+            local_mole4.append(np.abs(np.mean(neighbor_ors4)))
+        return np.array(local_bond6), np.array(local_bond4), np.array(local_mole6), np.array(local_mole4)
     
+    
+
+        '''
+        # solid local orders
+        solid_vor = Voronoi(self.xys[self.solid_id])
+        solid_neighbor_dict = build_voronoi_neighbor_dict(solid_vor)
+        self.solid_6bond_orders = local_bond_orient(self.xys[self.solid_id], solid_neighbor_dict, fold= 6)
+        self.local_solid_molecular = orient_param(self.ors[self.solid_id], solid_neighbor_dict, fold = 4)
+        
+        # liquid local orders
+        liquid_vor = Voronoi(self.xys[self.vor_liquid])
+        liquid_neighbor_dict = build_voronoi_neighbor_dict(liquid_vor)
+        self.liquid_6bond_orders = local_bond_orient(self.xys[self.vor_liquid], liquid_neighbor_dict, fold = 6)
+        self.local_liquid_molecular = orient_param(self.ors[self.vor_liq uid], liquid_neighbor_dict, fold = 4)
+        '''
+        
+    def plot_order(self, case):
+        xys = np.array(self.xys)
+        fig_v, ax_v = plt.subplots(1,1,figsize = (15,15))
+        if case == 'bond6':
+            colors = [self.inter_local_bond6, self.solid_local_bond6, self.liquid_local_bond6]
+        elif case == 'bond4':
+            colors = [self.inter_local_bond4, self.solid_local_bond4, self.liquid_local_bond4]
+        elif case == 'mole6':
+            colors = [self.inter_local_mole6, self.solid_local_mole6, self.liquid_local_mole6]
+        elif case == 'mole4':
+            colors = [self.inter_local_mole4, self.solid_local_mole4, self.liquid_local_mole4]
+        for p in self.polygons:
+            x, y = zip(*p.exterior.coords)
+            ax_v.plot(x,y,'k-')
+            #ax_v[1].plot(x,y,'k-')
+        # plot defined solid, liquid and interface
+        if np.any(self.interface):
+            ax_v.scatter(xys[:,0][self.interface], xys[:,1][self.interface], c = colors[0])
+        if np.sum(self.solid_id):
+            ax_v.scatter(xys[:,0][self.solid_id], xys[:,1][self.solid_id], c = colors[1])
+        if len(self.vor_liquid)!= 0:
+            ax_v.scatter(xys[:,0][self.vor_liquid], xys[:,1][self.vor_liquid], c = colors[2])
+        #ax_v[1].scatter(xys[:,0], xys[:,1], c = np.array(self.dynamic_solid), cmap = 'Paired')
+        plt.show()
+        return
+        
+    def plot_voronoi(self):
+        xys = np.array(self.xys)
+        fig_v, ax_v = plt.subplots(1,1,figsize = (15,15))
+        for p in self.polygons:
+            x, y = zip(*p.exterior.coords)
+            ax_v.plot(x,y,'k-')
+            #ax_v[1].plot(x,y,'k-')
+        # plot defined solid, liquid and interface
+        if np.any(self.interface):
+            ax_v.scatter(xys[:,0][self.interface], xys[:,1][self.interface], c = 'yellow')
+        if np.sum(self.solid_id):
+            ax_v.scatter(xys[:,0][self.solid_id], xys[:,1][self.solid_id], c = '#D2691E')
+        if len(self.vor_liquid)!= 0:
+            ax_v.scatter(xys[:,0][self.vor_liquid], xys[:,1][self.vor_liquid], c = 'green')
+        #ax_v[1].scatter(xys[:,0], xys[:,1], c = np.array(self.dynamic_solid), cmap = 'Paired')
+        plt.show()
+        return 
