@@ -1,4 +1,4 @@
-c#!/usr/bin/env python2
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
 Created on Thu Feb 21 15:12:36 2019
@@ -50,16 +50,23 @@ class phase_diagram:
             solid_fraction = result['solid_fraction']
             liquid_order = result['liquid_order']
             solid_order = result['solid_order']
+            solid_bond4 = result['local_bond4']
+            solid_bond6 = result['local_bond6']
+            solid_mole4 = result['local_mole4']
             total_number = int(prefix.split('/')[-2])
             print(total_number)
         else:
-            total_number= phase.phase_detection()
+            total_number = phase.phase_detection()
             liquid = phase.liquid_density
             liquid_order = phase.liquid_molecular_order
             solid_fraction = phase.solid_fraction
             solid = phase.solid_density
             solid_order = phase.solid_molecular_order
-        return {total_number: (liquid, solid, solid_fraction, liquid_order, solid_order, prefix)}  
+            solid_bond4 = phase.solid_local_bond4
+            solid_bond6 = phase.solid_local_bond6
+            solid_mole4 = phase.solid_local_mole4
+        return {total_number: (liquid, solid, solid_fraction, liquid_order, solid_order, \
+                               solid_bond4, solid_bond6, solid_mole4, prefix)}  
     
     def build_density(self, path, plot_check = 0):
         prefixs = Find_Direct(path)
@@ -105,7 +112,8 @@ class phase_diagram:
     def phase_plot(self):
         self.diagram_data = defaultdict(list)
         sort_key = sorted(self.density_dict.keys())
-        quant_name = ['liquid', 'solid', 'solid_fraction', 'liquid_order', 'solid_order']
+        quant_name = ['liquid', 'solid', 'solid_fraction', 'liquid_order', 'solid_order', \
+                      'solid_local_bond4', 'solid_local_bond6', 'solid_local_mole4']
         for key in sort_key:
             value = self.density_dict[key]
             self.diagram_data['density'].append(key/float(self.total))
@@ -123,4 +131,10 @@ class phase_diagram:
                                   self.diagram_data['liquid_order_err'], 'Liquid Molecular Order', (0.51,0.2))
         self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid_order'],\
                                   self.diagram_data['solid_order_err'], 'Solid Molecular Order', (0.51,0.72))
+        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid_local_mole4'],\
+                                  self.diagram_data['solid_local_mole4_err'], 'Solid Local Molecular Order', (0.51,0.72))
+        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid_local_bond4'],\
+                                  self.diagram_data['solid_local_bond4_err'], 'Solid Bond4 Order', (0.51,0.72))
+        self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid_local_bond6'],\
+                                  self.diagram_data['solid_local_bond6_err'], 'Solid Bond6 Order', (0.51,0.72))       
         np.save(os.path.join(self.path,'diagram_data.npy'),dict(self.diagram_data))

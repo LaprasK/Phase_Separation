@@ -17,6 +17,7 @@ import velocity
 from collections import defaultdict
 import os
 from shapely.geometry import Point
+import pickle
 
 
 class phase_coex(object):
@@ -37,6 +38,7 @@ class phase_coex(object):
         self.test_layer = test_layer
         self.save_name = parent_direct + '/config_vdata.npy'
         self.result_name = parent_direct + '/phase_data.npy'
+        self.vor_data = parent_direct + '/vor.pkl'
         vdata_file = self.save_name
         if os.path.isfile(vdata_file):
             self.config_vdata = np.load(vdata_file).item()
@@ -194,9 +196,13 @@ class phase_coex(object):
         self.liquid_fraction = list()
         self.solid_molecular_order = list()
         self.liquid_molecular_order = list()
+        self.solid_local_bond4 = list()
+        self.solid_local_bond6 = list()
+        self.solid_local_mole4 = list()
         self.xys = dict()
         self.final_id = dict()
         self.vor_area = list()
+        self.vornoi_history = list()
         #self.liquid_vor_area = np.empty(0)
         plot_number = 0
         sorted_keys = sorted(self.config_vdata.keys())
@@ -275,12 +281,16 @@ class phase_coex(object):
             
                        
             plot_vor = startframe < 550
-            rho_liquid, rho_solid = self.density_calculation(solid_number, len(qualify_id), xys, ors, disp,\
+            voronoi = self.density_calculation(solid_number, len(qualify_id), xys, ors, disp,\
                                                              qualified_solid, plot_vor, radial_mask)
             #print(qualified_solid)
-            self.liquid_density.append(rho_liquid)
-            self.solid_density.append(rho_solid)
+            self.liquid_density.append(voronoi.liquid_density)
+            self.solid_density.append(voronoi.solid_density)
+            self.solid_local_bond4.append(np.nanmean(voronoi.solid_local_bond4))
+            self.solid_local_bond6.append(np.nanmean(voronoi.solid_local_bond6))
+            self.solid_local_mole4.append(np.nanmean(voronoi.solid_local_mole4))
             
+            self.vornoi_history.append(voronoi)
             if plot_number < self.plot_check:
                 xs = helpy.consecutive_fields_view(fdata[startframe][track_mask],'x')
                 ys = helpy.consecutive_fields_view(fdata[startframe][track_mask],'y')
@@ -295,12 +305,18 @@ class phase_coex(object):
     def density_calculation(self, number_of_solids, total_number, xys, ors, disp, ids, plot_vor, radial_mask):
         solids_area =  self.real_particle ** 2 * number_of_solids / 0.95347
         fraction = solids_area/self.system_area
-        hist = False
         ratio = 0.5 if fraction > 0.85 else 0.75
         #rho_liquid, rho_solid, varea, liquid_order, solid_order, solid_fraction, liquid_fraction = \
         #ret_dict = voronoi_liquid(xys, ors, disp, ids, self.side_len, ratio, self.boundary_shape, hist, plot_vor, radial_mask)
         voronoi = vor_particle(xys, ors, disp, ids, self.side_len, ratio, self.boundary_shape, radial_mask)
-        return ret_dict['liquid_density'], ret_dict['solid_density']
+        self.solid_molecular_order.append(voronoi.global_solid_order)
+        self.liquid_molecular_order.append(voronoi.global_liquid_order)
+        self.vor_area.append(voronoi.areas)
+        self.solid_fraction.append(voronoi.solid_fraction)
+        self.liquid_fraction.append(voronoi.liquid_fraction)
+        if plot_vor:
+            voronoi.plot_voronoi()
+        return voronoi
         
     
     def plot_check_solid(self,xs,ys, vr_mean, vr_mask, dot_mean_list, order_mask, \
@@ -316,18 +332,6 @@ class phase_coex(object):
                           dpi = 400, bbox_inches = 'tight')
         plt.show()
         return
-
-    
-    def get_solid_density(self, fdata):
-        inner = self.R - self.test_layer * self.side_len
-        total_area = np.pi*(self.R**2 - inner ** 2)
-        solid_density = list()
-        for frame, framedata in fdata.items():
-            qualify_mask = (framedata['r'] > inner)
-            qualify_mask = qualify_mask & (framedata['r'] < self.R)
-            mask_sum = np.sum(qualify_mask)
-            solid_density.append(mask_sum * self.side_len ** 2/ total_area)
-        return np.mean(solid_density)
             
     
     def save_phase(self):
@@ -337,7 +341,16 @@ class phase_coex(object):
         result['solid_density'] = self.solid_density
         result['solid_order'] = self.solid_molecular_order
         result['solid_fraction'] = self.solid_fraction
+        result['local_mole4'] = self.solid_local_mole4
+        result['local_bond4'] = self.solid_local_bond4
+        result['local_bond6'] = self.solid_local_bond6
         result['liquid_fraction'] = self.liquid_fraction
         np.save(self.result_name, result)
+        with open(self.vor_data, 'wb') as output:
+            pickle.dump(self.vornoi_history, output, pickle.HIGHEST_PROTOCOL)
         return 
+
+    def load_vor_history(self):
+        with open(self.vor_data, 'rb') as input:
+            self.loaded_vor = pickle.load(input)
         
