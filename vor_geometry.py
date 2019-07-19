@@ -183,131 +183,6 @@ def orient_param(ors, neighbor_dict, fold = 4):
     
 def global_orient(ors, fold = 4):
     return np.abs(np.mean(np.exp(fold * 1j * ors)))
-    
-
-   
-def voronoi_liquid(xys, ors, disp, ids, sidelength, ratio,  boundary_shape, hist = False, plot_area = 1, radial_mask = []):
-    """
-    Input:
-        xys, position of particles: N*2 array
-        ors, orientation of particles: N array
-        ids, an array of True or False mask, if True we think it's solid, False otherwise
-        ratio: threshold #liquid_neighbor/#neighbor, float
-    Output:
-        densities: a float number 
-        temp: voronoi area of each particle
-        order: a float number means molecular order
-    """
-    ret_dict = dict()
-    vor = Voronoi(xys)
-    #temp = calculate_area(vor)
-    #temp = finite_voronoi(vor, boundary_shape)
-    polygons, temp = voronoi_polygons(vor, 300, boundary_shape)
-    ret_dict['area'] = temp
-    #t1 = temp <= 1200
-    t2 = temp > 200
-    #reverse_mask = 1 - radial_mask
-    # this threshold can exclude boundary particles
-    threshold = t2
-    # id of liquid
-    #liquid_id = list(np.where(np.array(np.array(ids) + radial_mask) == 0)[0])
-    liquid_id = list(np.where(np.array(np.array(ids)) == 0)[0])
-    # dictionary: key, pt_id; value, neighbors
-    index_dict = build_voronoi_neighbor_dict(vor)
-    # vor_liquid is the id for liquids
-    vor_liquid, interface = liquid_interface(liquid_id, index_dict, temp,ratio)
-    #print(threshold)
-    qualified_solid = ids & threshold
-    solid_id = np.where(qualified_solid == 1)[0]
-    # qualified_solid is the id for solids, interface is id for interfacial particles
-    qualified_solid, interface = solid_interface(solid_id, liquid_id, interface, index_dict)
-    local_bond_6 = local_bond_orient(xys, index_dict, fold = 6)
-    local_bond_4 = local_bond_orient(xys, index_dict, fold = 4)
-    local_orient = orient_param(ors, index_dict, 4)
-    if len(vor_liquid) != 0:
-        liquid_area = temp[vor_liquid]
-        liquid_density = density_calculation(liquid_area, sidelength)
-        liquid_ors = ors[vor_liquid]
-        g_liquid_order = global_orient(liquid_ors)
-    else:
-        liquid_density = np.nan
-        g_liquid_order = np.nan
-    ret_dict['liquid_density'] = liquid_density
-    ret_dict['liquid_order'] = g_liquid_order
-    # get solid liquid fraction
-    ncount = len(qualified_solid) + len(vor_liquid) + len(interface)
-    liquid_fraction = len(vor_liquid)/float(ncount)
-    solid_fraction = len(qualified_solid)/float(ncount)
-    ret_dict['ids'] = vor_liquid, qualified_solid, interface
-    ret_dict['liquid_fraction'] = liquid_fraction
-    ret_dict['solid_fraction'] = solid_fraction
-    ##########################################################
-    # get order parameter for two phases
-    ##########################################################
-    #orders = orient_param(ors, index_dict)
-    #if len(qualified_solid) != 0:
-    #    solid_order = np.mean(orders[qualified_solid])
-    #else:
-    #    solid_order = 0
-    #liquid_order = np.mean(orders[vor_liquid])
-    if len(qualified_solid) != 0:
-        solid_ors = ors[qualified_solid]
-        solid_xys = disp[qualified_solid]
-        angles = np.arctan2(*[solid_xys[:,1], solid_xys[:,0]])
-        cors = angles % (2*np.pi)
-        g_solid_ors = solid_ors - cors
-        g_solid_order = global_orient(g_solid_ors)
-        # solid density calculation
-        solid_area = temp[qualified_solid]    
-        solid_density = density_calculation(solid_area, sidelength)
-        # solid local bond
-        #local_bond_orient(solid_xys, , fold = 6)
-    else:
-        g_solid_order = np.nan
-        solid_density = np.nan
-    ret_dict['solid_density'] = solid_density
-    ret_dict['solid_order'] = g_solid_order
-    
-
-
-    if hist:
-        ids = np.asarray(ids)
-        fig, ax = plt.subplots()
-        ax.hist(temp[ids], 50,  log=True)
-        ax.hist(temp[~ids], 50, log=True)
-        plt.show()
-    if plot_area:
-        xys = np.array(xys)
-        fig_v, ax_v = plt.subplots(2,1,figsize = (15,15*2))
-        #voronoi_plot_2d(vor, ax = ax_v[0], show_points = False, show_vertices = False)
-        for p in polygons:
-            x, y = zip(*p.exterior.coords)
-            ax_v[0].plot(x,y,'k-')
-            ax_v[1].plot(x,y,'k-')
-        ax_v[0].scatter(xys[:,0], xys[:,1], c = np.array(ids), cmap = 'Paired')
-        #voronoi_plot_2d(vor, ax = ax_v[1], show_points = False, show_vertices = False)
-        
-        
-        
-        if np.any(interface):
-            ax_v[1].scatter(xys[:,0][interface], xys[:,1][interface], c = 'yellow')
-        if np.sum(qualified_solid):
-            ax_v[1].scatter(xys[:,0][qualified_solid], xys[:,1][qualified_solid], c = '#D2691E')
-        if len(vor_liquid)!= 0:
-            ax_v[1].scatter(xys[:,0][vor_liquid], xys[:,1][vor_liquid], c = 'green')
-    
-        
-        #voronoi_plot_2d(vor, ax = ax_v[2], show_points = False, show_vertices = False)
-        #thre = temp < 5000
-        #im1 = ax_v[2].scatter(xys[thre][:,0], xys[thre][:,1], c = temp[thre], cmap = 'Paired')
-        #cax0 = fig_v.add_axes([0.1,0.9,0.7,0.025])
-        #cax1 = fig_v.add_axes([0.1,0.35,0.7,0.02])
-        #fig_v.colorbar(im0, cax = cax0, orientation = 'horizontal')
-        #fig_v.colorbar(im1, cax = cax1, orientation = 'horizontal')
-        plt.show()
-    return ret_dict
-    #return liquid_density, solid_density, temp, g_liquid_order, g_solid_order, solid_fraction, liquid_fraction
-
 
 class vor_particle:
     def __init__(self, xys, ors, disp, dynamic_solid, sidelength, ratio, boundary_shape, \
@@ -363,8 +238,8 @@ class vor_particle:
             self.global_solid_order = np.nan              
             
         self.ncount = len(self.solid_id) + len(self.interface) + len(self.vor_liquid)
-        self.liquid_fraction = len(self.vor_liquid)/self.ncount
-        self.solid_fraction = len(self.solid_id)/self.ncount
+        self.liquid_fraction = len(self.vor_liquid)/float(self.ncount)
+        self.solid_fraction = len(self.solid_id)/float(self.ncount)
 
         
     def local_orders(self, phase_id):
@@ -380,7 +255,11 @@ class vor_particle:
             disp = self.xys[neighbors][mask] - self.xys[key]
             angle = np.arctan2(*disp.T)
             local_bond6.append(np.abs(np.mean(np.exp(1j*6*angle))))
-            local_bond4.append(np.abs(np.mean(np.exp(1j*4*angle))))
+            if len(angle) <= 4:
+                local_bond4.append(np.abs(np.mean(np.exp(1j*4*angle))))
+            else:
+                dist4 = np.argsort(np.hypot(*disp.T))[:4]
+                local_bond4.append(np.abs(np.mean(np.exp(1j*4*angle[dist4]))))
             #molecular order
             neighbor_ors6 = [np.exp(1j*6*self.ors[ids]) for ids in neighbors[mask]]
             neighbor_ors6.append(np.exp(6*1j*self.ors[key]))
@@ -391,24 +270,14 @@ class vor_particle:
         return np.array(local_bond6), np.array(local_bond4), np.array(local_mole6), np.array(local_mole4)
     
     
+    
+    def get_poloarization(self, R_range = 100):
+        return
 
-        '''
-        # solid local orders
-        solid_vor = Voronoi(self.xys[self.solid_id])
-        solid_neighbor_dict = build_voronoi_neighbor_dict(solid_vor)
-        self.solid_6bond_orders = local_bond_orient(self.xys[self.solid_id], solid_neighbor_dict, fold= 6)
-        self.local_solid_molecular = orient_param(self.ors[self.solid_id], solid_neighbor_dict, fold = 4)
         
-        # liquid local orders
-        liquid_vor = Voronoi(self.xys[self.vor_liquid])
-        liquid_neighbor_dict = build_voronoi_neighbor_dict(liquid_vor)
-        self.liquid_6bond_orders = local_bond_orient(self.xys[self.vor_liquid], liquid_neighbor_dict, fold = 6)
-        self.local_liquid_molecular = orient_param(self.ors[self.vor_liq uid], liquid_neighbor_dict, fold = 4)
-        '''
-        
-    def plot_order(self, case):
+    def plot_order(self, case = 'bond6', state = 'solid'):
         xys = np.array(self.xys)
-        fig_v, ax_v = plt.subplots(1,1,figsize = (15,15))
+        fig_v, ax_v = plt.subplots(1,1,figsize = (12,10))
         if case == 'bond6':
             colors = [self.inter_local_bond6, self.solid_local_bond6, self.liquid_local_bond6]
         elif case == 'bond4':
@@ -422,12 +291,13 @@ class vor_particle:
             ax_v.plot(x,y,'k-')
             #ax_v[1].plot(x,y,'k-')
         # plot defined solid, liquid and interface
-        if np.any(self.interface):
+        if np.any(self.interface) and state == 'inter':
             ax_v.scatter(xys[:,0][self.interface], xys[:,1][self.interface], c = colors[0])
-        if np.sum(self.solid_id):
-            ax_v.scatter(xys[:,0][self.solid_id], xys[:,1][self.solid_id], c = colors[1])
-        if len(self.vor_liquid)!= 0:
+        elif np.sum(self.solid_id) and state == 'solid':
+            image = ax_v.scatter(xys[:,0][self.solid_id], xys[:,1][self.solid_id], c = colors[1])
+        elif len(self.vor_liquid)!= 0 and state == 'liquid':
             ax_v.scatter(xys[:,0][self.vor_liquid], xys[:,1][self.vor_liquid], c = colors[2])
+        fig_v.colorbar(image)
         #ax_v[1].scatter(xys[:,0], xys[:,1], c = np.array(self.dynamic_solid), cmap = 'Paired')
         plt.show()
         return
