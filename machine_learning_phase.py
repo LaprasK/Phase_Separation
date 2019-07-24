@@ -199,6 +199,10 @@ class phase_coex(object):
         self.solid_local_bond4 = list()
         self.solid_local_bond6 = list()
         self.solid_local_mole4 = list()
+        self.solid_polar = list()
+        self.solid_polar_fraction = list()
+        self.radi_polar = list()
+        self.radi_polar_fraction = list()
         self.xys = dict()
         self.final_id = dict()
         self.vor_area = list()
@@ -289,6 +293,11 @@ class phase_coex(object):
             self.solid_local_bond4.append(np.nanmean(voronoi.solid_local_bond4))
             self.solid_local_bond6.append(np.nanmean(voronoi.solid_local_bond6))
             self.solid_local_mole4.append(np.nanmean(voronoi.solid_local_mole4))
+            self.solid_polar.append(np.nanmean(voronoi.solid_polar))
+            self.solid_polar_fraction.append(voronoi.solid_polar_fraction)
+            self.radi_polar.append(np.nanmean(voronoi.radius_polar))
+            self.radi_polar_fraction.append(voronoi.R_polar_fraction)
+    
             
             self.vornoi_history.append(voronoi)
             if plot_number < self.plot_check:
@@ -332,8 +341,18 @@ class phase_coex(object):
                           dpi = 400, bbox_inches = 'tight')
         plt.show()
         return
-            
-    
+                       
+    def value_evolution(self, value, name):    
+        fig, ax = plt.subplots()
+        time = np.arange(1, self.number_config+1)
+        ax.plot(time, value)
+        return
+
+    def plot_evolution(self):
+        values = [self.solid_molecular_order]
+        names = []
+
+
     def save_phase(self):
         result = dict()
         result['liquid_density'] = self.liquid_density
