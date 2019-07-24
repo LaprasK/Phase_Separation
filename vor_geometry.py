@@ -184,6 +184,11 @@ def orient_param(ors, neighbor_dict, fold = 4):
 def global_orient(ors, fold = 4):
     return np.abs(np.mean(np.exp(fold * 1j * ors)))
 
+
+def normalize_vectors(inputs):
+    norms = np.linalg.norm(inputs, axis = 1)
+    return inputs/norms[:, None]
+
 class vor_particle:
     def __init__(self, xys, ors, disp, dynamic_solid, sidelength, ratio, boundary_shape, \
                  radial_mask = []):
@@ -200,6 +205,7 @@ class vor_particle:
         self.solid_local_bond6, self.solid_local_bond4, self.solid_local_mole6, self.solid_local_mole4 = self.local_orders(self.solid_id)
         self.liquid_local_bond6, self.liquid_local_bond4, self.liquid_local_mole6, self.liquid_local_mole4 = self.local_orders(self.vor_liquid)
         self.inter_local_bond6, self.inter_local_bond4, self.inter_local_mole6, self.inter_local_mole4 = self.local_orders(self.interface)
+        self.get_poloarization()
         
     def solid_liquid_interface(self):
         #self.ret_dict = dict()
@@ -271,8 +277,19 @@ class vor_particle:
     
     
     
-    def get_poloarization(self, R_range = 100):
-        return
+    def get_poloarization(self):
+        center_vector = normalize_vectors(self.disp)
+        orient_vector = np.array([np.cos(self.ors), np.sin(self.ors)]).T
+        prods = np.sum(center_vector * orient_vector, axis = 1)
+        self.polarization = prods
+        if len(self.solid_id) > 0:
+            self.solid_polar = prods[self.solid_id]
+            self.solid_polar_fraction = np.sum(self.solid_polar >= 0) / float(len(self.solid_polar))
+        Rs = np.hypot(*self.disp.T)
+        R_range = np.min(Rs[self.solid_id]) 
+        self.R_polar_mask = Rs >= R_range
+        self.radius_polar = prods[self.R_polar_mask]
+        self.R_polar_fraction = np.sum(self.radius_polar >= 0)/float(len(self.radius_polar))
 
         
     def plot_order(self, case = 'bond6', state = 'solid'):
@@ -301,6 +318,18 @@ class vor_particle:
         #ax_v[1].scatter(xys[:,0], xys[:,1], c = np.array(self.dynamic_solid), cmap = 'Paired')
         plt.show()
         return
+    
+    def plot_polar(self, types = 'Radius'):
+        xys = np.array(self.xys)
+        fig, ax = plt.subplots(figsize = (12,10))
+        for p in self.polygons:
+            x, y = zip(*p.exterior.coords)
+            ax.plot(x,y,'k-')
+        if types == 'Radius':
+            image = ax.scatter(xys[:,0][self.R_polar_mask], xys[:,1][self.R_polar_mask], c = self.radius_polar)
+        elif types == 'Solid':
+            image = ax.scatter(xys[:,0][self.solid_id], xys[:,1][self.solid_id], c = self.solid_polar)
+        fig.colorbar(image)
         
     def plot_voronoi(self):
         xys = np.array(self.xys)
