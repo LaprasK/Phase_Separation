@@ -23,6 +23,9 @@ import pickle
 class phase_coex(object):
     def __init__(self, prefix, data_type = 'ml', number_config = 200, config_len = 50, real_particle = 0.2, fps = 2.5, \
                  nearest_neighbor_number = 5,  plot_check = False, test_layer = 2, vomega = 0.12):
+        '''
+        data_type: ml, machine learning detected result;  conv, old convolution detection result
+        '''
         self.prefix = prefix
         self.number_config = number_config
         self.config_len = config_len
