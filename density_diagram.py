@@ -22,12 +22,13 @@ class phase_diagram:
         liquid density, solid density, liquid molecular order, solid molecular order and solid particle fraction
     put them in the phase diagram class.
     """
-    def __init__(self, path, plot_check = 0, particle_size = 0.2, load_data = True, single_data = True, vomega = 0.1):
+    def __init__(self, path, data_type = 'ml', plot_check = 0, particle_size = 0.2, load_data = True, single_data = True, vomega = 0.1):
         """
         load_data: combine all information in each density into one dictionary
         single_data: for each density whether load pre-saved data information
         """
         self.path = path
+        self.data_type = data_type
         self.plot_check = plot_check
         #self.solid_density = solid_density
         self.load = load_data
@@ -40,7 +41,6 @@ class phase_diagram:
     
     def single_density_load(self, prefix, plot_check = 0 ):
         print(prefix)
-        phase = phase_coex(prefix, plot_check= plot_check, vomega = self.vomega)
         parent_direct = os.path.abspath(os.path.join(prefix, os.pardir))
         file_name = os.path.join(parent_direct, 'phase_data.npy')
         if self.load_single_density_data and os.path.isfile(file_name):
@@ -53,9 +53,14 @@ class phase_diagram:
             solid_bond4 = result['local_bond4']
             solid_bond6 = result['local_bond6']
             solid_mole4 = result['local_mole4']
+            solid_polar = result['solid_polar']
+            solid_polar_fraction = result['solid_polar_fraction']
+            radi_polar = result['radi_polar']
+            radi_polar_fraction = result['radi_polar_fraction']
             total_number = int(prefix.split('/')[-2])
             print(total_number)
         else:
+            phase = phase_coex(prefix, data_type= self.data_type, plot_check= plot_check, vomega = self.vomega)
             total_number = phase.phase_detection()
             liquid = phase.liquid_density
             liquid_order = phase.liquid_molecular_order
@@ -65,8 +70,13 @@ class phase_diagram:
             solid_bond4 = phase.solid_local_bond4
             solid_bond6 = phase.solid_local_bond6
             solid_mole4 = phase.solid_local_mole4
+            solid_polar = phase.solid_polar
+            solid_polar_fraction = phase.solid_polar_fraction
+            radi_polar = phase.radi_polar
+            radi_polar_fraction = phase.radi_polar_fraction
         return {total_number: (liquid, solid, solid_fraction, liquid_order, solid_order, \
-                               solid_bond4, solid_bond6, solid_mole4, prefix)}  
+                               solid_bond4, solid_bond6, solid_mole4, solid_polar, \
+                                solid_polar_fraction,radi_polar,radi_polar_fraction,prefix)}  
     
     def build_density(self, path, plot_check = 0):
         prefixs = Find_Direct(path)
