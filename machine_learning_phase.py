@@ -21,7 +21,7 @@ import pickle
 
 
 class phase_coex(object):
-    def __init__(self, prefix, number_config = 200, config_len = 50, real_particle = 0.2, fps = 2.5, \
+    def __init__(self, prefix, data_type = 'ml', number_config = 200, config_len = 50, real_particle = 0.2, fps = 2.5, \
                  nearest_neighbor_number = 5,  plot_check = False, test_layer = 2, vomega = 0.12):
         self.prefix = prefix
         self.number_config = number_config
@@ -31,7 +31,10 @@ class phase_coex(object):
         self.nnn = nearest_neighbor_number
         self.system_area = np.pi * 4 **2
         self.result = defaultdict(list)
-        self.load_and_process()
+        if data_type == 'ml':
+            self.load_and_process()
+        elif data_type == 'conv':
+            self.convol_load_and_process()
         parent_direct = os.path.abspath(os.path.join(self.prefix, os.pardir))
         self.plot_check = plot_check
         self.vomega_criteria = vomega
@@ -43,10 +46,16 @@ class phase_coex(object):
         if os.path.isfile(vdata_file):
             self.config_vdata = np.load(vdata_file).item()
             if len(self.config_vdata.keys()) != number_config:
-                self.build_config_vdata()
+                if data_type == 'ml':
+                    self.build_config_vdata()
+                elif data_type == 'conv':
+                    self.convol_build_config_vdata()
         else:
             self.config_vdata = dict()
-            self.build_config_vdata()
+            if data_type == 'ml':
+                self.build_config_vdata()
+            elif data_type == 'conv':
+                self.convol_build_config_vdata()
         
     def load_and_process(self):
         self.pdata = helpy.load_data(self.prefix, 'p')
@@ -55,7 +64,15 @@ class phase_coex(object):
         self.max_dist = self.side_len/1.25        
         self.frames = self.pdata['f']
         self.boundary_shape = Point(self.y0, 1024 - self.x0).buffer(self.R)
-        
+
+    def convol_load_and_process(self):
+        self.pdata, self.odata = helpy.load_data(self.prefix, 'p o')
+        self.x0, self.y0, self.R = ring_motion.boundary(self.prefix)
+        self.side_len = self.R * self.real_particle /4.0
+        self.max_dist = self.side_len/1.25
+        self.odata['orient'] = (self.odata['orient'] + np.pi)%(2 * np.pi) 
+        self.frames = self.pdata['f']   
+        self.boundary_shape = Point(self.y0, 1024 - self.x0).buffer(self.R) 
         
     def rechoose_boundary(self):
         meta = helpy.load_meta(self.prefix)
@@ -80,7 +97,17 @@ class phase_coex(object):
         return_data = helpy.add_self_view(return_data, ('x','y'),'xy')
         return return_data
 
-    
+    def convol_track_config(self, pdata, odata, startframe):
+        pfsets = helpy.load_framesets(pdata)
+        pftrees = {f: KDTree(helpy.consecutive_fields_view(pfset, 'xy'),
+                             leafsize=32) for f, pfset in pfsets.iteritems()}
+        trackids = tracks.find_tracks(pdata, maxdist= self.max_dist, giveup = 10, n = 0, stub = 20, \
+                                      pftrees = pftrees, pfsets = pfsets, startframe = startframe)
+        trackids = tracks.remove_duplicates(trackids, data = pdata)
+        return_data = helpy.initialize_tdata(pdata, trackids, odata)
+        return_data = helpy.add_self_view(return_data, ('x','y'),'xy')
+        return return_data
+
     def build_config_vdata(self):
         for i in range(0, self.number_config):
             startframe = i * self.config_len
@@ -99,6 +126,24 @@ class phase_coex(object):
             v_data = v_data[self.prefix]
             self.config_vdata[startframe] = v_data
         np.save(self.save_name, self.config_vdata)
+        return
+
+
+    def convol_build_config_vdata(self):
+        for i in range(0, self.number_config):
+            startframe = i * self.config_len
+            mask = (self.frames >= startframe) & (self.frames < (i+1)*self.config_len)
+            config_pdata, config_odata = self.pdata[mask], self.odata[mask]['orient']
+            config_tdata = self.convol_track_config(config_pdata, config_odata, startframe)
+            tracksets = helpy.load_tracksets(config_tdata, run_track_orient = True, min_length = self.config_len//2, \
+                                             run_repair = 'interp')
+            track_prefix = {self.prefix: tracksets}
+            v_data = velocity.compile_noise(track_prefix, width=(0.525,), cat = False, side = self.side_len, \
+                                        fps = self.fps, ring = True, x0 = self.x0, y0 = self.y0, skip = 1, \
+                                        grad = False, start = 0)
+            v_data = v_data[self.prefix]
+            self.config_vdata[startframe] = v_data
+        np.save(self.save_name ,self.config_vdata)
         return
 
     def smooth_orient(self, ret):
@@ -342,16 +387,20 @@ class phase_coex(object):
         plt.show()
         return
                        
-    def value_evolution(self, value, name):    
+    def evolution(self, quant, name):
+        times = np.arange(1, self.number_config + 1)
         fig, ax = plt.subplots()
-        time = np.arange(1, self.number_config+1)
-        ax.plot(time, value)
+        ax.plot(times, quant)
+        ax.set_xlabel('Time (1 = 250 shake)')
+        ax.set_ylabel(name)
         return
 
-    def plot_evolution(self):
-        values = [self.solid_molecular_order]
-        names = []
-
+    def plot_evolution(self, plot_type = 'all'):
+        result = np.load(self.result_name).item()
+        if plot_type == 'all':
+            for key, value in result.items():
+                self.evolution(value, key)
+        return result
 
     def save_phase(self):
         result = dict()
@@ -364,6 +413,10 @@ class phase_coex(object):
         result['local_bond4'] = self.solid_local_bond4
         result['local_bond6'] = self.solid_local_bond6
         result['liquid_fraction'] = self.liquid_fraction
+        result['solid_polar'] = self.solid_polar
+        result['solid_polar_fraction'] = self.solid_polar_fraction
+        result['radi_polar'] = self.radi_polar
+        result['radi_polar_fraction'] = self.radi_polar_fraction
         np.save(self.result_name, result)
         with open(self.vor_data, 'wb') as output:
             pickle.dump(self.vornoi_history, output, pickle.HIGHEST_PROTOCOL)
