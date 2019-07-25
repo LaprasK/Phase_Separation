@@ -206,7 +206,21 @@ class vor_particle:
         self.liquid_local_bond6, self.liquid_local_bond4, self.liquid_local_mole6, self.liquid_local_mole4 = self.local_orders(self.vor_liquid)
         self.inter_local_bond6, self.inter_local_bond4, self.inter_local_mole6, self.inter_local_mole4 = self.local_orders(self.interface)
         self.get_poloarization()
-        
+    
+    def solid_interface(self, solid_id, liquid_id, interface, index_dict):
+        interface = list(interface)
+        qual_solid = list()
+        for sol in solid_id:
+            neighbors = index_dict[sol]
+            mask = np.isin(neighbors, liquid_id)
+            if np.sum(mask)>=2:
+                interface.append(sol)
+            elif self.areas[sol] > (self.sidelength ** 2 / 0.5):
+                interface.append(sol)
+            else:
+                qual_solid.append(sol)
+        return np.array(qual_solid), np.array(interface)
+
     def solid_liquid_interface(self):
         #self.ret_dict = dict()
         self.vor = Voronoi(self.xys)
@@ -217,7 +231,7 @@ class vor_particle:
         self.vor_liquid, interface = liquid_interface(liquid_id, self.neighbor_dict, area_criteria, self.ratio)
         qualified_solid = self.dynamic_solid & area_criteria
         solid_id = np.where(qualified_solid == 1)[0]
-        self.solid_id, self.interface = solid_interface(solid_id, liquid_id, interface, self.neighbor_dict)
+        self.solid_id, self.interface = self.solid_interface(solid_id, liquid_id, interface, self.neighbor_dict)
         
     def order_paras(self):
         # liquid orders    
