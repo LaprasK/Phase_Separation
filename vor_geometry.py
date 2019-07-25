@@ -284,12 +284,12 @@ class vor_particle:
         self.polarization = prods
         if len(self.solid_id) > 0:
             self.solid_polar = prods[self.solid_id]
-            self.solid_polar_fraction = np.sum(self.solid_polar >= 0) / float(len(self.solid_polar))
+            self.solid_polar_fraction = np.sum(np.array(self.solid_polar) >= 0) / float(len(self.solid_polar))
         Rs = np.hypot(*self.disp.T)
         R_range = np.min(Rs[self.solid_id]) 
         self.R_polar_mask = Rs >= R_range
         self.radius_polar = prods[self.R_polar_mask]
-        self.R_polar_fraction = np.sum(self.radius_polar >= 0)/float(len(self.radius_polar))
+        self.R_polar_fraction = np.sum(np.array(self.radius_polar) >= 0)/float(len(self.radius_polar))
 
         
     def plot_order(self, case = 'bond6', state = 'solid'):
