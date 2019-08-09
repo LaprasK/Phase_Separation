@@ -255,6 +255,7 @@ class phase_coex(object):
         self.final_id = dict()
         self.vor_area = list()
         self.vornoi_history = list()
+        self.inter_boundary_number = list()
         #self.liquid_vor_area = np.empty(0)
         plot_number = 0
         sorted_keys = sorted(self.config_vdata.keys())
@@ -345,6 +346,7 @@ class phase_coex(object):
             self.solid_polar_fraction.append(voronoi.solid_polar_fraction)
             self.radi_polar.append(np.nanmean(voronoi.radius_polar))
             self.radi_polar_fraction.append(voronoi.R_polar_fraction)
+            self.inter_boundary_number.append(voronoi.interface_number)
     
             
             self.vornoi_history.append(voronoi)
@@ -420,6 +422,7 @@ class phase_coex(object):
         result['solid_polar_fraction'] = self.solid_polar_fraction
         result['radi_polar'] = self.radi_polar
         result['radi_polar_fraction'] = self.radi_polar_fraction
+        result['inter_number'] = self.inter_boundary_number
         np.save(self.result_name, result)
         with open(self.vor_data, 'wb') as output:
             pickle.dump(self.vornoi_history, output, pickle.HIGHEST_PROTOCOL)

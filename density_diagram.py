@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from ring_motion import Find_Direct
 from collections import defaultdict
 import os
-
+import pickle
 
 class phase_diagram:
     """
@@ -22,7 +22,7 @@ class phase_diagram:
         liquid density, solid density, liquid molecular order, solid molecular order and solid particle fraction
     put them in the phase diagram class.
     """
-    def __init__(self, path, data_type = 'ml', plot_check = 0, particle_size = 0.2, load_data = True, single_data = True, vomega = 0.1):
+    def __init__(self, path, data_type = 'ml', plot_check = 0, particle_size = 0.2, load_data = True, single_data = True, vomega = 0.12):
         """
         load_data: combine all information in each density into one dictionary
         single_data: for each density whether load pre-saved data information
@@ -34,15 +34,15 @@ class phase_diagram:
         self.load = load_data
         self.load_single_density_data = single_data
         self.vomega = vomega
-        self.density_dict = self.build_density(self.path, self.plot_check)
         self.particle_size = particle_size
+        self.density_dict = self.build_density(self.path, self.plot_check)       
         self.total = np.pi*4**2/self.particle_size**2
         
     
     def single_density_load(self, prefix, plot_check = 0 ):
-        print(prefix)
         parent_direct = os.path.abspath(os.path.join(prefix, os.pardir))
         file_name = os.path.join(parent_direct, 'phase_data.npy')
+        print(prefix)
         if self.load_single_density_data and os.path.isfile(file_name):
             result = np.load(file_name).item()
             liquid = result['liquid_density']
@@ -60,7 +60,7 @@ class phase_diagram:
             total_number = int(prefix.split('/')[-2])
             print(total_number)
         else:
-            phase = phase_coex(prefix, data_type= self.data_type, plot_check= plot_check, vomega = self.vomega)
+            phase = phase_coex(prefix, data_type= self.data_type, real_particle= self.particle_size, plot_check= plot_check, vomega = self.vomega)
             total_number = phase.phase_detection()
             liquid = phase.liquid_density
             liquid_order = phase.liquid_molecular_order
@@ -78,6 +78,7 @@ class phase_diagram:
                                solid_bond4, solid_bond6, solid_mole4, solid_polar, \
                                 solid_polar_fraction,radi_polar,radi_polar_fraction,prefix)}  
     
+
     def build_density(self, path, plot_check = 0):
         prefixs = Find_Direct(path)
         density_file = os.path.join(path, 'density_dict_'+str(self.vomega)+'.npy')
@@ -95,7 +96,6 @@ class phase_diagram:
         else:
             density_dict = {}
             for prefix in prefixs:
-                print(prefix)
                 density_dict.update(self.single_density_load(prefix, plot_check = plot_check))
             np.save(density_file, density_dict)
         return density_dict
@@ -111,7 +111,7 @@ class phase_diagram:
         ax.set_xlim([0,1])
         ax.set_ylabel(name, fontsize = 25)
         ax.axvspan(0.5, 0.93, facecolor='#2ca02c', alpha=0.2)
-        ax.text(text_position[0], text_position[1], "Phase Coexistence", fontsize = 28)
+        #ax.text(text_position[0], text_position[1], "Phase Coexistence", fontsize = 28)
         ax.axvline(0.5, color = 'black', ls = '--', lw= 3)
         #ax.annotate("Phase Coexistence", arrow_position, xytext=(arrow_position[0] - 0.24, arrow_position[1]+0.1),arrowprops=dict(facecolor='black', width=2),fontsize =22)
         ax.tick_params(length=6, width=2, labelsize=20)
@@ -148,3 +148,74 @@ class phase_diagram:
         self.plot_single_quantity(self.diagram_data['density'], self.diagram_data['solid_local_bond6'],\
                                   self.diagram_data['solid_local_bond6_err'], 'Solid Bond6 Order', (0.51,0.72))       
         np.save(os.path.join(self.path,'diagram_data.npy'),dict(self.diagram_data))
+
+
+    
+    def extract_single_vor(self):
+        vor_files = Find_Direct(self.path, Result='vor.pkl')
+        self.vor_dict = dict()
+        for vor_file in vor_files:
+            with open(vor_file, 'rb') as input:
+                number = int(vor_file.split('/')[-2])
+                self.vor_dict[number] = pickle.load(input)
+
+
+    def quant_plot(self, x_name, y_name, method = 'mean'):
+        fig, ax = plt.subplots()
+        sort_key = np.sort(self.vor_dict.keys())
+        for key in sort_key:
+            value = self.vor_dict[key]
+            if x_name == 'liquid_density':
+                xs = [vor.liquid_density for vor in value]
+            elif x_name == 'liquid_number':
+                xs = [len(vor.vor_liquid) for vor in value]
+            elif x_name == 'interface_number':
+                xs = [vor.interface_number for vor in value]
+            elif x_name == 'liquid_order':
+                xs = [vor.global_liquid_order for vor in value]
+            elif x_name == 'solid_bond4':
+                xs = [vor.solid_local_bond4 for vor in value]
+            elif x_name == 'solid_bond6':
+                xs = [vor.solid_local_bond6 for vor in value]
+            if y_name == 'liquid_density':
+                ys = [vor.liquid_density for vor in value]
+            elif y_name == 'liquid_number':
+                ys = [len(vor.vor_liquid) for vor in value]
+            elif y_name == 'interface_number':
+                ys = [vor.interface_number for vor in value]
+            elif y_name == 'liquid_order':
+                ys = [vor.global_liquid_order for vor in value]
+            elif y_name == 'solid_bond4':
+                ys = [np.nanmean(vor.solid_local_bond4) for vor in value]
+            elif y_name == 'solid_bond6':
+                ys = [np.nanmean(vor.solid_local_bond6) for vor in value]
+            if method == 'mean':
+                xs = np.nanmean(xs)
+                ys = np.nanstd(ys)
+            ax.scatter(xs,ys, label = key)
+        ax.set_xlabel(x_name)
+        ax.set_ylabel(y_name)
+        ax.legend(ncol=2)
+
+    def plot_evolutions(self):
+        density_results = Find_Direct(self.path, Result = 'phase_data.npy')
+        self.evol_data =  defaultdict(dict)
+        # key1: quantity, key2: area fraction
+        for density_result in density_results:
+            data = np.load(density_result).item()
+            total_number = int(density_result.split('/')[-2])
+            for key, value in data.items():
+                area_fraction = round(total_number*self.particle_size**2/(np.pi*4**2), 2)
+                self.evol_data[key][area_fraction] = value
+        
+        
+
+        for key, value in self.evol_data.items():
+            fig, ax = plt.subplots()
+            sort_keys = np.sort(value.keys())
+            for area_fraction in sort_keys:
+                evol = value[area_fraction]
+                ax.plot(evol, label = str(area_fraction))
+            ax.legend(ncol = 2)
+            ax.set_ylabel(key)
+        return

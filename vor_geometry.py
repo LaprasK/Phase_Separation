@@ -153,6 +153,12 @@ def density_calculation(area, sidelength):
     particle_area = len(area) * sidelength ** 2
     return particle_area/float(total_area)
 
+def solid_density_calculation(area, sidelength, threshold = 0.6):
+    mask = (np.array(area) <= (sidelength ** 2 / threshold))
+    particle_area = np.sum(mask) * sidelength ** 2
+    total_area = np.sum(area[mask])
+    return particle_area/float(total_area)
+
 
 def local_bond_orient(xys, neighbor_dict, fold = 6):
     '''
@@ -207,7 +213,7 @@ class vor_particle:
         self.inter_local_bond6, self.inter_local_bond4, self.inter_local_mole6, self.inter_local_mole4 = self.local_orders(self.interface)
         self.get_poloarization()
     
-    def solid_interface(self, solid_id, liquid_id, interface, index_dict):
+    def solid_interface(self, solid_id, liquid_id, interface, index_dict, density_threshold = 0.6):
         interface = list(interface)
         qual_solid = list()
         for sol in solid_id:
@@ -215,8 +221,8 @@ class vor_particle:
             mask = np.isin(neighbors, liquid_id)
             if np.sum(mask)>=2:
                 interface.append(sol)
-            elif self.areas[sol] > (self.sidelength ** 2 / 0.5):
-                interface.append(sol)
+            #elif self.areas[sol] > (self.sidelength ** 2 / density_threshold):
+                #interface.append(sol)
             else:
                 qual_solid.append(sol)
         return np.array(qual_solid), np.array(interface)
@@ -232,6 +238,16 @@ class vor_particle:
         qualified_solid = self.dynamic_solid & area_criteria
         solid_id = np.where(qualified_solid == 1)[0]
         self.solid_id, self.interface = self.solid_interface(solid_id, liquid_id, interface, self.neighbor_dict)
+        self.interface_number = 0
+        self.ncount = len(self.solid_id) + len(self.interface) + len(self.vor_liquid)
+        self.liquid_fraction = len(self.vor_liquid)/float(self.ncount)
+        self.solid_fraction = len(self.solid_id)/float(self.ncount)
+        if len(self.interface) > 0:
+            for inter in self.interface:
+                neighbor = self.neighbor_dict[inter]
+                solid_neighbor = np.isin(neighbor, self.solid_id)
+                if np.sum(solid_neighbor) > 0:
+                    self.interface_number += 1
         
     def order_paras(self):
         # liquid orders    
@@ -252,14 +268,12 @@ class vor_particle:
             global_solid_ors = solid_ors - cors
             self.global_solid_order = global_orient(global_solid_ors)
             self.solid_area = self.areas[self.solid_id]
-            self.solid_density = density_calculation(self.solid_area, self.sidelength)
+            self.solid_density = solid_density_calculation(self.solid_area, self.sidelength)
         else:
             self.solid_density = np.nan
             self.global_solid_order = np.nan              
             
-        self.ncount = len(self.solid_id) + len(self.interface) + len(self.vor_liquid)
-        self.liquid_fraction = len(self.vor_liquid)/float(self.ncount)
-        self.solid_fraction = len(self.solid_id)/float(self.ncount)
+
 
         
     def local_orders(self, phase_id):
@@ -274,24 +288,37 @@ class vor_particle:
             #bond order
             disp = self.xys[neighbors][mask] - self.xys[key]
             angle = np.arctan2(*disp.T)
-            local_bond6.append(np.abs(np.mean(np.exp(1j*6*angle))))
+            dist = np.hypot(*disp.T)
+            if len(angle) <= 6:
+                local_bond6.append(np.abs(np.mean(np.exp(1j*6*angle))))
+            else:
+                dist6 = np.argsort(dist)[:6]
+                local_bond6.append(np.abs(np.mean(np.exp(1j*6*angle[dist6]))))
             if len(angle) <= 4:
                 local_bond4.append(np.abs(np.mean(np.exp(1j*4*angle))))
             else:
-                dist4 = np.argsort(np.hypot(*disp.T))[:4]
+                dist4 = np.argsort(dist)[:4]
                 local_bond4.append(np.abs(np.mean(np.exp(1j*4*angle[dist4]))))
             #molecular order
-            neighbor_ors6 = [np.exp(1j*6*self.ors[ids]) for ids in neighbors[mask]]
+            # set upper limit of neighbors by distance
+            dist_mask = dist < self.sidelength * 2
+            neighbor_ors6 = [np.exp(1j*6*self.ors[ids]) for ids in neighbors[mask][dist_mask]]
             neighbor_ors6.append(np.exp(6*1j*self.ors[key]))
-            neighbor_ors4 = [np.exp(1j*4*self.ors[ids]) for ids in neighbors[mask]]
+            neighbor_ors4 = [np.exp(1j*4*self.ors[ids]) for ids in neighbors[mask][dist_mask]]
             neighbor_ors4.append(np.exp(4*1j*self.ors[key]))
-            local_mole6.append(np.abs(np.mean(neighbor_ors6)))
-            local_mole4.append(np.abs(np.mean(neighbor_ors4)))
+            if len(neighbor_ors6) <= 2:
+                local_mole6.append(np.nan)
+            else:
+                local_mole6.append(np.abs(np.mean(neighbor_ors6)))
+            if len(neighbor_ors4) <= 2:
+                local_mole4.append(np.nan)
+            else:
+                local_mole4.append(np.abs(np.mean(neighbor_ors4)))
         return np.array(local_bond6), np.array(local_bond4), np.array(local_mole6), np.array(local_mole4)
     
     
     
-    def get_poloarization(self):
+    def get_poloarization(self, R_range = None):
         center_vector = normalize_vectors(self.disp)
         orient_vector = np.array([np.cos(self.ors), np.sin(self.ors)]).T
         prods = np.sum(center_vector * orient_vector, axis = 1)
@@ -331,6 +358,7 @@ class vor_particle:
             ax_v.scatter(xys[:,0][self.interface], xys[:,1][self.interface], c = colors[0])
         elif np.sum(self.solid_id) and state == 'solid':
             image = ax_v.scatter(xys[:,0][self.solid_id], xys[:,1][self.solid_id], c = colors[1])
+            image.set_clim(0,1)
         elif len(self.vor_liquid)!= 0 and state == 'liquid':
             ax_v.scatter(xys[:,0][self.vor_liquid], xys[:,1][self.vor_liquid], c = colors[2])
         fig_v.colorbar(image)
